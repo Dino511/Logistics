@@ -23,6 +23,7 @@ class AuthController extends Controller
         if (Auth::attempt($credentials + ['is_active' => true], $request->boolean('remember'))) {
             $request->session()->regenerate();
             ActivityLog::record('login', 'Signed in');
+
             return redirect()->intended('/dashboard');
         }
 
@@ -38,6 +39,7 @@ class AuthController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
         return redirect('/login');
     }
 }

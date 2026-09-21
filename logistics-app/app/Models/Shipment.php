@@ -31,11 +31,30 @@ class Shipment extends Model
         ];
     }
 
-    public function items() { return $this->hasMany(ShipmentItem::class, 'shipment_id'); }
-    public function history() { return $this->hasMany(ShipmentStatusHistory::class, 'shipment_id')->latest('changed_at'); }
-    public function driver() { return $this->belongsTo(Driver::class, 'driver_id'); }
-    public function vehicle() { return $this->belongsTo(Vehicle::class, 'vehicle_id'); }
-    public function customer() { return $this->belongsTo(Customer::class, 'customer_id'); }
+    public function items()
+    {
+        return $this->hasMany(ShipmentItem::class, 'shipment_id');
+    }
+
+    public function history()
+    {
+        return $this->hasMany(ShipmentStatusHistory::class, 'shipment_id')->latest('changed_at');
+    }
+
+    public function driver()
+    {
+        return $this->belongsTo(Driver::class, 'driver_id');
+    }
+
+    public function vehicle()
+    {
+        return $this->belongsTo(Vehicle::class, 'vehicle_id');
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class, 'customer_id');
+    }
 
     public static function label(string $status): string
     {
@@ -53,8 +72,15 @@ class Shipment extends Model
         ][$status] ?? 'b-pending';
     }
 
-    public function statusLabel(): string { return self::label($this->status); }
-    public function badgeClass(): string { return self::badge($this->status); }
+    public function statusLabel(): string
+    {
+        return self::label($this->status);
+    }
+
+    public function badgeClass(): string
+    {
+        return self::badge($this->status);
+    }
 
     public function allowedNextStatuses(): array
     {

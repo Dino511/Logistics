@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
 #[Fillable(['name', 'email', 'password', 'role'])]
 #[Hidden(['password', 'remember_token'])]
@@ -44,8 +45,8 @@ class User extends Authenticatable
 
     public function initials(): string
     {
-        return \Illuminate\Support\Str::of($this->name)->explode(' ')->filter()
-            ->map(fn ($p) => \Illuminate\Support\Str::upper(\Illuminate\Support\Str::substr($p, 0, 1)))
+        return Str::of($this->name)->explode(' ')->filter()
+            ->map(fn ($p) => Str::upper(Str::substr($p, 0, 1)))
             ->take(2)->implode('');
     }
 

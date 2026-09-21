@@ -6,11 +6,9 @@ use App\Models\ActivityLog;
 use App\Models\Driver;
 use App\Models\Inventory\Stock;
 use App\Models\Shipment;
-use App\Models\ShipmentItem;
 use App\Models\Vehicle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -180,10 +178,12 @@ class ShipmentController extends Controller
 
             if (! $stock || ! $stock->product || ! $stock->product->is_active) {
                 $errors[] = 'One of the selected products is no longer available.';
+
                 continue;
             }
             if ($qty > (int) $stock->quantity) {
                 $errors[] = "{$stock->product->name}: only {$stock->quantity} in stock, but {$qty} requested.";
+
                 continue;
             }
             $lines[] = [

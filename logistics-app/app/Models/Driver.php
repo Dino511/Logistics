@@ -10,10 +10,20 @@ class Driver extends Model
 
     protected $guarded = [];
 
-    public function vehicle() { return $this->belongsTo(Vehicle::class, 'vehicle_id'); }
-    public function shipments() { return $this->hasMany(Shipment::class, 'driver_id'); }
+    public function vehicle()
+    {
+        return $this->belongsTo(Vehicle::class, 'vehicle_id');
+    }
 
-    public static function statusLabel(string $s): string { return ucfirst(str_replace('_', ' ', $s)); }
+    public function shipments()
+    {
+        return $this->hasMany(Shipment::class, 'driver_id');
+    }
+
+    public static function statusLabel(string $s): string
+    {
+        return ucfirst(str_replace('_', ' ', $s));
+    }
 
     public static function badge(string $s): string
     {

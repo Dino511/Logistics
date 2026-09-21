@@ -13,6 +13,7 @@ use Illuminate\Validation\Rule;
 class ActivityLogController extends Controller
 {
     private const PRINT_LIMIT = 2000;
+
     private const EXPORT_LIMIT = 20000;
 
     public function index(Request $request)
