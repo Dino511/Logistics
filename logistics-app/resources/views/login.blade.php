@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logistics – Sign in</title>
+<style>
+  :root {
+    --bg: #f3f5f9;
+    --card: #ffffff;
+    --text: #1b2333;
+    --muted: #6b7690;
+    --border: #d9dfeb;
+    --primary: #2454e6;
+    --primary-hover: #1a43c4;
+    --danger: #d13438;
+    --panel: #12224d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1424;
+      --card: #171f35;
+      --text: #e8ecf6;
+      --muted: #9aa6c4;
+      --border: #2a3556;
+      --primary: #4f7bff;
+      --primary-hover: #6b91ff;
+      --danger: #ff6b6f;
+      --panel: #0a1230;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .brand {
+    background: linear-gradient(160deg, var(--panel), #2454e6);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 48px;
+  }
+  .brand .logo { display: flex; align-items: center; gap: 12px; font-size: 1.5rem; font-weight: 700; }
+  .brand p { max-width: 380px; line-height: 1.6; opacity: .85; margin-top: 20px; }
+  .main { display: flex; align-items: center; justify-content: center; padding: 24px; }
+  form {
+    width: 100%;
+    max-width: 380px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 32px;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.5rem; }
+  .sub { margin: 0 0 24px; color: var(--muted); font-size: .95rem; }
+  label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 6px; }
+  .field { margin-bottom: 18px; position: relative; }
+  input[type=email], input[type=text], input[type=password] {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  input:focus { outline: 2px solid var(--primary); outline-offset: 1px; border-color: var(--primary); }
+  .toggle {
+    position: absolute; right: 8px; top: 30px;
+    background: none; border: 0; color: var(--muted);
+    font-size: .8rem; cursor: pointer; padding: 6px;
+  }
+  .row { display: flex; justify-content: space-between; align-items: center; font-size: .875rem; margin-bottom: 20px; }
+  .row label { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; }
+  a { color: var(--primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button.submit {
+    width: 100%; padding: 12px; border: 0; border-radius: 8px;
+    background: var(--primary); color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer;
+  }
+  button.submit:hover { background: var(--primary-hover); }
+  button.submit:disabled { opacity: .6; cursor: default; }
+  .error { color: var(--danger); font-size: .875rem; min-height: 1.2em; margin-bottom: 12px; }
+  .hint { margin: 16px 0 0; font-size: .8rem; color: var(--muted); text-align: center; }
+  @media (max-width: 800px) {
+    body { grid-template-columns: 1fr; }
+    .brand { display: none; }
+  }
+</style>
+</head>
+<body>
+  <section class="brand">
+    <div class="logo">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+      </svg>
+      Logistics
+    </div>
+    <p>Track shipments, manage fleets and keep every delivery on schedule from one place.</p>
+  </section>
+
+  <main class="main">
+    <form id="loginForm" method="POST" action="{{ route('login') }}" novalidate>
+      @csrf
+      <h1>Welcome back</h1>
+      <p class="sub">Sign in to your account to continue.</p>
+
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ old('email') }}" autocomplete="username" required autofocus>
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+        <button type="button" class="toggle" id="toggle" aria-label="Show password">Show</button>
+      </div>
+
+      <div class="row">
+        <label><input type="checkbox" name="remember"> Remember me</label>
+        <a href="#">Forgot password?</a>
+      </div>
+
+      @if ($errors->any())
+        <x-alert type="error">{{ $errors->first() }}</x-alert>
+      @endif
+      <div class="error" id="error" role="alert"></div>
+      <button type="submit" class="submit" id="submitBtn">Sign in</button>
+      <p class="hint">Demo: admin@logistics.test / password</p>
+    </form>
+  </main>
+
+<script>
+  const form = document.getElementById('loginForm');
+  const errorEl = document.getElementById('error');
+  const btn = document.getElementById('submitBtn');
+  const pw = document.getElementById('password');
+
+  document.getElementById('toggle').addEventListener('click', (e) => {
+    const show = pw.type === 'password';
+    pw.type = show ? 'text' : 'password';
+    e.target.textContent = show ? 'Hide' : 'Show';
+    e.target.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+
+  form.addEventListener('submit', (e) => {
+    if (!form.email.value.trim() || !pw.value) {
+      e.preventDefault();
+      errorEl.textContent = 'Please enter your email and password.';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+  });
+</script>
+</body>
+</html>
