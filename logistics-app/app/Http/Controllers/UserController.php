@@ -6,8 +6,11 @@ use App\Enums\Role;
 use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 
 class UserController extends Controller
 {
@@ -35,11 +38,134 @@ class UserController extends Controller
             return back()->with('error', 'At least one active Super Admin must remain.');
         }
 
-        $oldRole = $user->role->label();
-        $user->forceFill(['role' => $newRole])->save();
-        ActivityLog::record('role_changed', "Changed {$user->name}'s role from {$oldRole} to {$newRole->label()}", $user);
+        $oldRole = $user->roleLabel();
+        // Driver or helper only applies to Field Personnel.
+        $user->forceFill([
+            'role' => $newRole,
+            'field_position' => $newRole === Role::FieldPersonnel ? $user->field_position : null,
+        ])->save();
+        ActivityLog::record('role_changed', "Changed {$user->name}'s role from {$oldRole} to {$user->roleLabel()}", $user);
 
-        return back()->with('status', "{$user->name} is now {$newRole->label()}.");
+        $message = "{$user->name} is now {$user->roleLabel()}.";
+        if ($newRole === Role::FieldPersonnel && ! $user->field_position) {
+            $message .= ' Choose whether they are a driver or a helper.';
+        }
+
+        return back()->with('status', $message);
+    }
+
+    /** Driver or Truck / Cargo Helper, for a Field Personnel account. */
+    public function updatePosition(Request $request, User $user)
+    {
+        Gate::authorize('manage-users');
+        abort_unless($user->role === Role::FieldPersonnel, 422, 'Only Field Personnel have a driver or helper position.');
+
+        $data = $request->validate(['field_position' => ['required', Rule::in(array_keys(User::FIELD_POSITIONS))]]);
+
+        if ($data['field_position'] === 'helper' && $user->driver) {
+            return back()->with('error', "{$user->name} is linked to a driver record. Unlink them on the Drivers page before making them a helper.");
+        }
+
+        $old = $user->roleLabel();
+        $user->forceFill(['field_position' => $data['field_position']])->save();
+        ActivityLog::record('role_changed', "Changed {$user->name} from {$old} to {$user->roleLabel()}", $user);
+
+        return back()->with('status', "{$user->name} is now {$user->roleLabel()}.");
+    }
+
+    public function create()
+    {
+        Gate::authorize('manage-users');
+
+        return view('users.edit', ['user' => new User, 'roles' => Role::cases()]);
+    }
+
+    public function store(Request $request)
+    {
+        Gate::authorize('manage-users');
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
+            'role' => ['required', Rule::enum(Role::class)],
+            'field_position' => ['required_if:role,'.Role::FieldPersonnel->value, 'nullable', Rule::in(array_keys(User::FIELD_POSITIONS))],
+            'password' => ['required', 'confirmed', Password::min(8)->letters()->numbers()],
+        ], [
+            'field_position.required_if' => 'Choose whether this Field Personnel is a driver or a helper.',
+        ]);
+
+        $role = Role::from($data['role']);
+        $user = new User;
+        $user->forceFill([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => $data['password'], // hashed by the model's cast
+            'role' => $role,
+            'field_position' => $role === Role::FieldPersonnel ? $data['field_position'] : null,
+            'is_active' => true,
+        ])->save();
+
+        // Never log the password itself.
+        ActivityLog::record('user_created', "Added user {$user->name} ({$user->roleLabel()})", $user);
+
+        return redirect()->route('users.index')->with('status', "{$user->name} added as {$user->roleLabel()}.");
+    }
+
+    public function edit(User $user)
+    {
+        Gate::authorize('manage-users');
+
+        return view('users.edit', ['user' => $user]);
+    }
+
+    /** Name, email and (optionally) a new password for any user. Blank password = unchanged. */
+    public function update(Request $request, User $user)
+    {
+        Gate::authorize('manage-users');
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'field_position' => [Rule::requiredIf($user->role === Role::FieldPersonnel), 'nullable', Rule::in(array_keys(User::FIELD_POSITIONS))],
+            'password' => ['nullable', 'confirmed', Password::min(8)->letters()->numbers()],
+        ], [
+            'field_position.required' => 'Choose whether this Field Personnel is a driver or a helper.',
+        ]);
+
+        $position = $user->role === Role::FieldPersonnel ? $data['field_position'] : null;
+        if ($position === 'helper' && $user->driver) {
+            return back()->withInput()->with('error', "{$user->name} is linked to a driver record. Unlink them on the Drivers page before making them a helper.");
+        }
+
+        $changes = array_keys(array_filter([
+            'name' => $data['name'] !== $user->name,
+            'email' => $data['email'] !== $user->email,
+            'position' => $position !== $user->field_position,
+            'password' => filled($data['password']),
+        ]));
+
+        $user->name = $data['name'];
+        $user->email = $data['email'];
+        $user->field_position = $position;
+        if (filled($data['password'])) {
+            $user->password = $data['password']; // hashed by the model's cast
+            // Ends any "remember me" logins that were using the old password.
+            $user->setRememberToken(Str::random(60));
+        }
+        $user->save();
+
+        // Editing your own password: keep this session signed in. AuthenticateSession saves the
+        // signed-in user's password hash after the request, so it must see the new one.
+        if (filled($data['password']) && $user->is($request->user())) {
+            Auth::setUser($user);
+        }
+
+        if ($changes) {
+            // Never log the password itself, only that it changed.
+            ActivityLog::record('user_updated', "Updated {$user->name}'s account (".implode(', ', $changes).')', $user);
+        }
+
+        return redirect()->route('users.index')->with('status', $changes ? "{$user->name}'s account updated." : 'No changes made.');
     }
 
     public function toggleActive(Request $request, User $user)

@@ -36,7 +36,7 @@
 
   <h1>Logistics – Activity Log</h1>
   <p class="meta">
-    Generated {{ now()->format('M j, Y g:i A') }} by {{ auth()->user()->name }} ({{ auth()->user()->role->label() }})<br>
+    Generated {{ now()->format('M j, Y g:i A') }} by {{ auth()->user()->name }} ({{ auth()->user()->roleLabel() }})<br>
     @php
       $applied = collect([
         $filters['action'] ? 'Action: '.\App\Models\ActivityLog::actionLabel($filters['action']) : null,

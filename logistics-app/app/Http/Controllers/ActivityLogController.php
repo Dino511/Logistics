@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
 use App\Models\User;
+use App\Support\Csv;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -64,7 +65,7 @@ class ActivityLogController extends Controller
             fputcsv($out, ['Timestamp', 'User', 'Role', 'Action', 'Description', 'IP address']);
 
             foreach ($query->limit(self::EXPORT_LIMIT)->cursor() as $log) {
-                fputcsv($out, array_map([$this, 'csvSafe'], [
+                fputcsv($out, array_map([Csv::class, 'safe'], [
                     $log->created_at->format('Y-m-d H:i:s'),
                     $log->user_name,
                     $log->user_role,
@@ -107,13 +108,5 @@ class ActivityLogController extends Controller
                 ->where('description', 'like', '%'.$f['q'].'%')
                 ->orWhere('user_name', 'like', '%'.$f['q'].'%')))
             ->orderByDesc('id');
-    }
-
-    /** Stops a cell such as =HYPERLINK(...) from being run as a formula when the CSV is opened in Excel. */
-    private function csvSafe(?string $value): string
-    {
-        $value = (string) $value;
-
-        return $value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true) ? "'".$value : $value;
     }
 }

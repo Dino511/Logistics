@@ -15,7 +15,35 @@
 @endpush
 
 @section('content')
-  <div class="card">
+  @if ($myDeliveries !== null)
+    <div class="card" style="margin-bottom:24px">
+      <h2>{{ __('My deliveries') }}</h2>
+      @if (! $isLinkedDriver)
+        <p class="empty" style="padding:12px 8px">{{ __("Your account isn't linked to a driver yet. Ask a Manager to link it from the driver's page.") }}</p>
+      @elseif ($myDeliveries->isEmpty())
+        <p class="empty" style="padding:12px 8px">{{ __('No open deliveries assigned to you.') }}</p>
+      @else
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>{{ __('Tracking no.') }}</th><th>{{ __('Deliver to') }}</th><th>{{ __('Status') }}</th><th>{{ __('Scheduled') }}</th><th></th></tr></thead>
+            <tbody>
+              @foreach ($myDeliveries as $sh)
+                <tr>
+                  <td><a class="track" href="{{ route('shipments.show', $sh) }}">{{ $sh->tracking_number }}</a></td>
+                  <td><strong>{{ $sh->destination_name }}</strong><br><small style="color:var(--muted)">{{ $sh->destination_city }}</small></td>
+                  <td><span class="badge {{ $sh->badgeClass() }}">{{ __($sh->statusLabel()) }}</span></td>
+                  <td>{{ $sh->scheduled_delivery_at->translatedFormat('M j, g:i A') }}</td>
+                  <td><a class="btn sm primary" href="{{ route('shipments.show', $sh) }}#delivery-update">{{ count($sh->fieldNextStatuses()) ? __('Update') : __('View') }}</a></td>
+                </tr>
+              @endforeach
+            </tbody>
+          </table>
+        </div>
+      @endif
+    </div>
+  @endif
+
+  <div class="card" style="margin-bottom:24px">
     <div class="toolbar">
       <form method="GET" action="{{ route('shipments.index') }}">
         <input type="search" name="q" value="{{ $search }}" placeholder="Search tracking no. or destination" aria-label="Search shipments">

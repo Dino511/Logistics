@@ -23,12 +23,20 @@
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Plate no.</th><th>Type</th><th>Capacity</th><th>Status</th><th>Drivers</th><th>Shipments</th><th></th></tr></thead>
+        <thead><tr><th>Plate no.</th><th>Type</th><th>Ownership</th><th>Capacity</th><th>Status</th><th>Drivers</th><th>Shipments</th><th></th></tr></thead>
         <tbody>
           @forelse ($vehicles as $v)
             <tr>
               <td><strong>{{ $v->plate_number }}</strong></td>
               <td>{{ $v->type }}</td>
+              <td>
+                @if ($v->is_rented)
+                  <span class="badge b-pending">Leased</span>
+                  @if ($v->lease)<div style="font-size:.75rem;color:var(--muted);margin-top:3px">{{ $v->lease->rateSummary() }}</div>@endif
+                @else
+                  <span class="badge b-delivered">Owned</span>
+                @endif
+              </td>
               <td>{{ $v->capacity_kg !== null ? number_format($v->capacity_kg, 0).' kg' : '—' }}</td>
               <td><span class="badge {{ \App\Models\Vehicle::badge($v->status) }}">{{ \App\Models\Vehicle::statusLabel($v->status) }}</span></td>
               <td>{{ $v->drivers_count }}</td>
@@ -46,7 +54,7 @@
               </td>
             </tr>
           @empty
-            <tr><td colspan="7" class="empty">No vehicles yet. Add your first one.</td></tr>
+            <tr><td colspan="8" class="empty">No vehicles yet. Add your first one.</td></tr>
           @endforelse
         </tbody>
       </table>

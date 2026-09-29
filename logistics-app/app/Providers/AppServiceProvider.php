@@ -22,6 +22,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::define('manage-users', fn (User $user) => $user->isSuperAdmin());
+        Gate::define('manage-site-images', fn (User $user) => $user->isSuperAdmin());
         // Activity log history and printing: Super Admin and Manager only.
         Gate::define('view-activity-logs', fn (User $user) => $user->isSuperAdmin() || $user->hasRole('manager'));
     }

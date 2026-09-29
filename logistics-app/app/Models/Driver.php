@@ -15,6 +15,12 @@ class Driver extends Model
         return $this->belongsTo(Vehicle::class, 'vehicle_id');
     }
 
+    /** The Field Personnel account this driver signs in with, if any. */
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
     public function shipments()
     {
         return $this->hasMany(Shipment::class, 'driver_id');

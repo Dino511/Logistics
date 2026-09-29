@@ -8,7 +8,7 @@ class Product extends InventoryModel
 
     protected function casts(): array
     {
-        return ['selling_price' => 'decimal:2', 'cost' => 'decimal:2', 'is_active' => 'boolean'];
+        return ['selling_price' => 'decimal:2', 'is_active' => 'boolean'];
     }
 
     public function scopeActive($q)
@@ -18,7 +18,7 @@ class Product extends InventoryModel
 
     public function category()
     {
-        return $this->belongsTo(ProductCategory::class, 'category_id');
+        return $this->belongsTo(ProductCategory::class, 'product_category_id');
     }
 
     public function stock()

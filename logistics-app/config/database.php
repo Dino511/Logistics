@@ -117,9 +117,9 @@ return [
         // Read-only connection to the Inventory & Stock system's database.
         'inventory' => [
             'driver' => 'sqlsrv',
-            'host' => env('INV_DB_HOST', 'localhost'),
-            'port' => env('INV_DB_PORT', '1433'),
-            'database' => env('INV_DB_DATABASE', 'inventory'),
+            'host' => env('INV_DB_HOST', env('DB_HOST', 'localhost')),
+            'port' => env('INV_DB_PORT', ''),
+            'database' => env('INV_DB_DATABASE', 'inventory_DB'),
             'username' => env('INV_DB_USERNAME'),
             'password' => env('INV_DB_PASSWORD'),
             'charset' => 'utf8',

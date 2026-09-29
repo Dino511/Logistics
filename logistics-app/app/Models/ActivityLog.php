@@ -17,6 +17,7 @@ class ActivityLog extends Model
         'login' => ['Sign in', 'b-delivered'],
         'logout' => ['Sign out', 'b-pending'],
         'login_failed' => ['Failed sign-in', 'b-delayed'],
+        'login_locked' => ['Sign-in blocked', 'b-delayed'],
         'created' => ['Created', 'b-transit'],
         'updated' => ['Updated', 'b-transit'],
         'deleted' => ['Deleted', 'b-delayed'],
@@ -25,6 +26,14 @@ class ActivityLog extends Model
         'activated' => ['Activated', 'b-delivered'],
         'deactivated' => ['Deactivated', 'b-inactive'],
         'profile_updated' => ['Profile update', 'b-pending'],
+        'sos' => ['SOS', 'b-delayed'],
+        'tracking_started' => ['Location sharing on', 'b-transit'],
+        'tracking_stopped' => ['Location sharing off', 'b-pending'],
+        'user_created' => ['User added', 'b-delivered'],
+        'user_updated' => ['User update', 'b-delayed'],
+        'site_image_updated' => ['Site image', 'b-pending'],
+        'avatar_updated' => ['Photo update', 'b-pending'],
+        'avatar_removed' => ['Photo removed', 'b-pending'],
         'report' => ['Report', 'b-pending'],
     ];
 

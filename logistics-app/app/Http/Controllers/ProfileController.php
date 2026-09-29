@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
+use App\Models\SiteImage;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
@@ -24,25 +24,17 @@ class ProfileController extends Controller
         $user->name = $data['name'];
         $user->email = $data['email'];
 
+        $user->save();
+
         if ($request->hasFile('avatar')) {
-            $this->deleteAvatar($user->avatar_path);
-            // Stored under a generated name on the public disk; only the path is saved in the DB.
-            $user->avatar_path = $request->file('avatar')->store('avatars', 'public');
+            // Stored under a generated name on the public disk; only the path is saved in site_images.
+            SiteImage::storeAvatar($user, $request->file('avatar'));
         } elseif ($request->boolean('remove_avatar')) {
-            $this->deleteAvatar($user->avatar_path);
-            $user->avatar_path = null;
+            SiteImage::removeAvatar($user);
         }
 
-        $user->save();
         ActivityLog::record('profile_updated', 'Updated their own profile'.($request->hasFile('avatar') ? ' and photo' : ''));
 
         return back()->with('status', 'Profile updated.');
-    }
-
-    private function deleteAvatar(?string $path): void
-    {
-        if ($path) {
-            Storage::disk('public')->delete($path);
-        }
     }
 }
