@@ -41,9 +41,6 @@
   .fd-info .fd-body ul { margin:0 0 8px; padding-left:20px; }
   .fd-info .fd-body li { margin-bottom:4px; }
   .fd-info .fd-body p { margin:0 0 8px; }
-  .fd-sos { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; border:1px solid #d13438; }
-  .fd-sos p { margin:0; font-size:.9rem; }
-  .fd-sos .btn { background:#d13438; border-color:#d13438; color:#fff; font-weight:700; }
   @media (max-width:640px) { .fd-hello { padding:18px; } .fd-next-actions .btn { width:100%; text-align:center; } }
 </style>
 @endpush
@@ -152,11 +149,5 @@
         @endforeach
       </section>
     @endif
-
-    {{-- 9. Emergency reminder --}}
-    <section class="card fd-sos">
-      <p>🚨 {!! __('In an emergency, <strong>call 911 first</strong>, then alert the office.') !!}</p>
-      <button type="button" class="btn" onclick="document.getElementById('sosOpen').click()">{{ __('Emergency') }}</button>
-    </section>
   </div>
 @endsection

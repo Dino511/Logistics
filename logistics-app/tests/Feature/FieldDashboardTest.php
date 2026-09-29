@@ -92,7 +92,8 @@ class FieldDashboardTest extends TestCase
             ->assertDontSee('Low stock items')
             ->assertDontSee('Deliveries this week')
             ->assertSee('How to use this app')
-            ->assertSee('call 911 first', false);
+            ->assertDontSee('then alert the office.', false) // no separate emergency card
+            ->assertSee('class="sos-fab" id="sosOpen"', false); // the Emergency button, at the bottom of the sidebar
     }
 
     public function test_a_delayed_delivery_comes_first(): void
