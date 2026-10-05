@@ -25,20 +25,15 @@ use InvalidArgumentException;
 
 class ShipmentController extends Controller
 {
+    /** The printable list stops at this many rows. */
+    private const PRINT_LIMIT = 500;
+
     public function index(Request $request)
     {
         $status = $request->query('status');
         $search = trim((string) $request->query('q'));
 
-        $shipments = Shipment::query()
-            ->when(in_array($status, Shipment::STATUSES, true), fn ($q) => $q->where('status', $status))
-            ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
-                ->where('tracking_number', 'like', "%{$search}%")
-                ->orWhere('destination_name', 'like', "%{$search}%")
-                ->orWhere('destination_city', 'like', "%{$search}%")))
-            ->withCount('items')
-            ->withSum('items', 'quantity')
-            ->orderByDesc('shipment_id')
+        $shipments = $this->listQuery($status, $search)
             ->simplePaginate(15)
             ->withQueryString();
 
@@ -181,6 +176,7 @@ class ShipmentController extends Controller
             'destination_city' => ['required', 'string', 'max:100'],
             'destination_province' => ['nullable', 'string', 'max:100'],
             'destination_postal_code' => ['nullable', 'string', 'max:20'],
+            'scheduled_pickup_at' => ['nullable', 'date', 'after:now', 'before_or_equal:scheduled_delivery_at'],
             'scheduled_delivery_at' => ['required', 'date', 'after:now'],
             'driver_id' => ['nullable', 'integer', 'exists:drivers,id'],
             'vehicle_id' => ['nullable', 'integer', 'exists:vehicles,id'],
@@ -269,6 +265,50 @@ class ShipmentController extends Controller
         return view('shipments.show', ['shipment' => $shipment, 'live' => $live]);
     }
 
+    /** Printable copy of one shipment. The browser's print dialog saves it as a PDF. */
+    public function print(Shipment $shipment)
+    {
+        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver']);
+
+        ActivityLog::record('report', "Printed shipment {$shipment->tracking_number}", $shipment);
+
+        return view('shipments.print', ['shipment' => $shipment]);
+    }
+
+    /** Printable copy of the shipment list, with the same search and status filter as the page. */
+    public function printList(Request $request)
+    {
+        $status = $request->query('status');
+        $search = trim((string) $request->query('q'));
+        $query = $this->listQuery($status, $search);
+
+        $total = (clone $query)->count();
+
+        ActivityLog::record('report', "Printed the shipment list ({$total} matching shipments)");
+
+        return view('shipments.print_list', [
+            'shipments' => $query->limit(self::PRINT_LIMIT)->get(),
+            'total' => $total,
+            'limit' => self::PRINT_LIMIT,
+            'status' => in_array($status, Shipment::STATUSES, true) ? $status : null,
+            'search' => $search,
+        ]);
+    }
+
+    /** Shipments matching the list page's search and status filter, newest first. */
+    private function listQuery(?string $status, string $search)
+    {
+        return Shipment::query()
+            ->when(in_array($status, Shipment::STATUSES, true), fn ($q) => $q->where('status', $status))
+            ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('tracking_number', 'like', "%{$search}%")
+                ->orWhere('destination_name', 'like', "%{$search}%")
+                ->orWhere('destination_city', 'like', "%{$search}%")))
+            ->withCount('items')
+            ->withSum('items', 'quantity')
+            ->orderByDesc('shipment_id');
+    }
+
     public function updateStatus(Request $request, Shipment $shipment)
     {
         $data = $request->validate([
@@ -286,8 +326,8 @@ class ShipmentController extends Controller
     }
 
     /**
-     * Field Personnel updating a delivery assigned to them: In transit, Delayed (with a
-     * reason) or Delivered (with a photo and who received it). Office staff use updateStatus.
+     * Field Personnel updating a delivery assigned to them. A problem (Delayed, Delivery
+     * attempted) needs a reason; Delivered needs a photo and who received it. Office staff use updateStatus.
      */
     public function fieldUpdate(Request $request, Shipment $shipment)
     {
@@ -296,13 +336,13 @@ class ShipmentController extends Controller
 
         $data = $request->validate([
             'status' => ['required', Rule::in($shipment->fieldNextStatuses())],
-            'note' => [Rule::requiredIf($request->input('status') === 'delayed'), 'nullable', 'string', 'max:500'],
+            'note' => [Rule::requiredIf(in_array($request->input('status'), Shipment::PROBLEM_STATUSES, true)), 'nullable', 'string', 'max:500'],
             'received_by' => [Rule::requiredIf($request->input('status') === 'delivered'), 'nullable', 'string', 'max:150'],
             // Photo proof, from the phone camera or gallery. mimes checks the real file content.
             'proof_photo' => [Rule::requiredIf($request->input('status') === 'delivered'), 'nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ], [
             'status.in' => "This shipment can't be changed to that status from the field.",
-            'note.required' => 'Please give a reason for the delay.',
+            'note.required' => 'Please say what went wrong.',
             'received_by.required' => 'Enter the name of the person who received the delivery.',
             'proof_photo.required' => 'Take or attach a photo as proof of delivery.',
         ]);
@@ -341,7 +381,7 @@ class ShipmentController extends Controller
         DB::transaction(function () use ($shipment, $status, $note, $userId, $extra) {
             $shipment->fill($extra);
             $shipment->status = $status;
-            if ($status === 'in_transit' && ! $shipment->dispatched_at) {
+            if (in_array($status, Shipment::ON_ROAD_STATUSES, true) && ! $shipment->dispatched_at) {
                 $shipment->dispatched_at = now();
             }
             if ($status === 'delivered') {
@@ -359,7 +399,7 @@ class ShipmentController extends Controller
         });
 
         ActivityLog::record('status_changed', sprintf(
-            'Shipment %s: %s → %s%s', $shipment->tracking_number, $from, Shipment::label($status),
+            'Shipment %s: %s to %s%s', $shipment->tracking_number, $from, Shipment::label($status),
             $note ? ' ("'.$note.'")' : ''
         ), $shipment);
 
@@ -372,8 +412,8 @@ class ShipmentController extends Controller
      */
     public function dispatch(Request $request, Shipment $shipment, FleetAllocationService $fleet)
     {
-        if ($shipment->status !== 'pending') {
-            return back()->with('error', "Only a Pending shipment can be auto-dispatched (this one is {$shipment->statusLabel()}).");
+        if (! in_array($shipment->status, ['pending', 'ready_for_pickup'], true)) {
+            return back()->with('error', "Only a Pending or Ready for pickup shipment can be auto-dispatched (this one is {$shipment->statusLabel()}).");
         }
 
         try {

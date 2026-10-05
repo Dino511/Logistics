@@ -9,7 +9,7 @@
 
   @foreach ($slots as $name => $slot)
     @php $image = $images->get($name); @endphp
-    <div class="card" style="display:flex; gap:20px; align-items:center; flex-wrap:wrap;">
+    <div class="card" style="margin-bottom:20px; display:flex; gap:20px; align-items:center; flex-wrap:wrap;">
       <img src="{{ \App\Models\SiteImage::urlFor($name) }}" alt="" style="width:160px; height:110px; object-fit:cover; border-radius:8px; border:1px solid var(--border);">
       <div style="flex:1; min-width:220px;">
         <h2 style="margin-top:0;">{{ $slot['label'] }}</h2>
@@ -27,7 +27,7 @@
     </div>
   @endforeach
 
-  <div class="card" style="margin-top:20px;">
+  <div class="card">
     <h2>Profile pictures</h2>
     <p style="color:var(--muted); margin:-8px 0 16px;">Users can also change their own photo from their profile menu. JPG, PNG or WebP, up to 2 MB.</p>
     <div class="table-wrap">

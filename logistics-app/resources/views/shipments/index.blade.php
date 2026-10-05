@@ -11,6 +11,8 @@
   .pager { display:flex; justify-content:space-between; margin-top:14px; }
   .empty { text-align:center; color:var(--muted); padding:32px 8px; }
   td a.track { color:var(--primary); text-decoration:none; font-weight:600; }
+  tr.row-link { cursor:pointer; }
+  tr.row-link:hover td { background:var(--hover); }
 </style>
 @endpush
 
@@ -28,7 +30,7 @@
             <thead><tr><th>{{ __('Tracking no.') }}</th><th>{{ __('Deliver to') }}</th><th>{{ __('Status') }}</th><th>{{ __('Scheduled') }}</th><th></th></tr></thead>
             <tbody>
               @foreach ($myDeliveries as $sh)
-                <tr>
+                <tr class="row-link" data-href="{{ route('shipments.show', $sh) }}">
                   <td><a class="track" href="{{ route('shipments.show', $sh) }}">{{ $sh->tracking_number }}</a></td>
                   <td><strong>{{ $sh->destination_name }}</strong><br><small style="color:var(--muted)">{{ $sh->destination_city }}</small></td>
                   <td><span class="badge {{ $sh->badgeClass() }}">{{ __($sh->statusLabel()) }}</span></td>
@@ -55,9 +57,12 @@
         </select>
         <button type="submit" class="btn sm">Search</button>
       </form>
-      @if (auth()->user()->isSuperAdmin() || auth()->user()->hasRole('manager', 'logistics_coordinator'))
-        <a class="btn primary" href="{{ route('shipments.create') }}">+ New shipment</a>
-      @endif
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <a class="btn" href="{{ route('shipments.print-list', array_filter(['q' => $search, 'status' => $status])) }}" target="_blank" rel="noopener">Print / PDF</a>
+        @if (auth()->user()->isSuperAdmin() || auth()->user()->hasRole('manager', 'logistics_coordinator'))
+          <a class="btn primary" href="{{ route('shipments.create') }}">+ New shipment</a>
+        @endif
+      </div>
     </div>
 
     <div class="table-wrap">
@@ -65,7 +70,7 @@
         <thead><tr><th>Tracking no.</th><th>Origin</th><th>Destination</th><th>Items</th><th>Status</th><th>Scheduled</th><th>Result</th></tr></thead>
         <tbody>
           @forelse ($shipments as $sh)
-            <tr>
+            <tr class="row-link" data-href="{{ route('shipments.show', $sh) }}">
               <td><a class="track" href="{{ route('shipments.show', $sh) }}">{{ $sh->tracking_number }}</a></td>
               <td>{{ $sh->origin_city }}</td>
               <td>{{ $sh->destination_name }} · {{ $sh->destination_city }}</td>
@@ -87,9 +92,23 @@
 
     @if ($shipments->hasPages())
       <div class="pager">
-        @if ($shipments->previousPageUrl()) <a class="btn sm" href="{{ $shipments->previousPageUrl() }}">← Previous</a> @else <span></span> @endif
-        @if ($shipments->nextPageUrl()) <a class="btn sm" href="{{ $shipments->nextPageUrl() }}">Next →</a> @endif
+        @if ($shipments->previousPageUrl()) <a class="btn sm" href="{{ $shipments->previousPageUrl() }}">Previous</a> @else <span></span> @endif
+        @if ($shipments->nextPageUrl()) <a class="btn sm" href="{{ $shipments->nextPageUrl() }}">Next</a> @endif
       </div>
     @endif
   </div>
 @endsection
+
+@push('scripts')
+<script>
+  // Clicking anywhere on a row opens that shipment. Links and buttons inside the row keep
+  // their own behaviour, and dragging to select text does not navigate.
+  document.querySelectorAll('tr.row-link').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('a, button, input, select, label') || window.getSelection().toString()) return;
+      if (e.ctrlKey || e.metaKey) window.open(row.dataset.href, '_blank', 'noopener');
+      else window.location.href = row.dataset.href;
+    });
+  });
+</script>
+@endpush

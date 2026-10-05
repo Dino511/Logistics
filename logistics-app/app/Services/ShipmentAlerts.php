@@ -37,6 +37,13 @@ class ShipmentAlerts
                 "{$shipment->tracking_number} is delayed".($note ? ': '.Str::limit($note, 120) : '.'),
                 $actorId
             ),
+            'delivery_attempted' => $this->send(
+                array_merge($this->involved($shipment), $this->activeUserIds(Role::Manager)),
+                $shipment, 'delivery_attempted',
+                "Delivery of {$shipment->tracking_number} was attempted but failed".($note ? ': '.Str::limit($note, 120) : '.'),
+                $actorId
+            ),
+            'returned' => $this->send($this->involved($shipment), $shipment, 'returned', "{$shipment->tracking_number} is being returned to {$shipment->origin_name}.", $actorId),
             'delivered' => $this->send($this->involved($shipment), $shipment, 'delivered', "{$shipment->tracking_number} was delivered to {$shipment->destination_name}.", $actorId),
             default => null,
         };

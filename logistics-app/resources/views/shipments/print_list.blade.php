@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Activity Log – {{ now()->format('Y-m-d') }}</title>
+{{-- The browser suggests the page title as the PDF's file name. --}}
+<title>Shipments – {{ now()->format('Y-m-d') }}</title>
 <style>
   * { box-sizing:border-box; }
   body { margin:0; padding:24px; font-family:system-ui,"Segoe UI",Arial,sans-serif; color:#111; background:#fff; font-size:12px; }
@@ -16,7 +17,7 @@
   table { width:100%; border-collapse:collapse; }
   th, td { border:1px solid #ccc; padding:6px 8px; text-align:left; vertical-align:top; }
   th { background:#f0f2f7; font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
-  td.time { white-space:nowrap; }
+  td.nowrap { white-space:nowrap; }
   thead { display:table-header-group; }          /* repeat the header on every printed page */
   tr { break-inside:avoid; page-break-inside:avoid; }
   .footer { margin-top:14px; color:#555; font-size:11px; display:flex; justify-content:space-between; }
@@ -30,43 +31,43 @@
 </head>
 <body>
   <div class="bar">
-    <a href="{{ route('reports.activity', array_filter($filters)) }}">Back</a>
-    <button type="button" class="primary" onclick="window.print()">Print</button>
+    <a href="{{ route('shipments.index', array_filter(['q' => $search, 'status' => $status])) }}">Back</a>
+    <button type="button" class="primary" onclick="window.print()">Print / Save as PDF</button>
   </div>
 
-  <h1>Logistics – Activity Log</h1>
+  <h1>Logistics – Shipments</h1>
   <p class="meta">
     Generated {{ now()->format('M j, Y g:i A') }} by {{ auth()->user()->name }} ({{ auth()->user()->roleLabel() }})<br>
     @php
       $applied = collect([
-        $filters['action'] ? 'Action: '.\App\Models\ActivityLog::actionLabel($filters['action']) : null,
-        $userName ? 'User: '.$userName : null,
-        $filters['from'] ? 'From: '.$filters['from'] : null,
-        $filters['to'] ? 'To: '.$filters['to'] : null,
-        $filters['q'] !== '' ? 'Search: “'.$filters['q'].'”' : null,
+        $status ? 'Status: '.\App\Models\Shipment::label($status) : null,
+        $search !== '' ? 'Search: “'.$search.'”' : null,
       ])->filter();
     @endphp
-    Filters: {{ $applied->isEmpty() ? 'none (all entries)' : $applied->join(' · ') }}<br>
-    {{ number_format($total) }} {{ Str::plural('entry', $total) }}
+    Filters: {{ $applied->isEmpty() ? 'none (all shipments)' : $applied->join(' · ') }}<br>
+    {{ number_format($total) }} {{ Str::plural('shipment', $total) }}
   </p>
 
-  @if ($truncated)
-    <div class="notice">Showing the newest {{ number_format($limit) }} of {{ number_format($total) }} entries. Narrow the date range, or use Export CSV for the full list.</div>
+  @if ($total > $limit)
+    <div class="notice">Showing the newest {{ number_format($limit) }} of {{ number_format($total) }} shipments. Narrow the search or status filter to print the rest.</div>
   @endif
 
   <table>
-    <thead><tr><th style="width:130px">Timestamp</th><th style="width:130px">User</th><th style="width:110px">Role</th><th style="width:100px">Action</th><th>Description</th></tr></thead>
+    <thead><tr><th>Tracking no.</th><th>Origin</th><th>Destination</th><th>Items</th><th>Status</th><th>Scheduled</th><th>Delivered</th><th>Result</th></tr></thead>
     <tbody>
-      @forelse ($logs as $log)
+      @forelse ($shipments as $sh)
         <tr>
-          <td class="time">{{ $log->created_at->format('Y-m-d H:i:s') }}</td>
-          <td>{{ $log->user_name }}</td>
-          <td>{{ $log->user_role ?? '—' }}</td>
-          <td>{{ \App\Models\ActivityLog::actionLabel($log->action) }}</td>
-          <td>{{ $log->description }}</td>
+          <td class="nowrap">{{ $sh->tracking_number }}</td>
+          <td>{{ $sh->origin_city }}</td>
+          <td>{{ $sh->destination_name }} · {{ $sh->destination_city }}</td>
+          <td class="nowrap">{{ $sh->items_count }} ({{ number_format((int) $sh->items_sum_quantity) }} units)</td>
+          <td class="nowrap">{{ $sh->statusLabel() }}</td>
+          <td class="nowrap">{{ $sh->scheduled_delivery_at?->format('M j, Y g:i A') ?? '—' }}</td>
+          <td class="nowrap">{{ $sh->actual_delivery_at?->format('M j, Y g:i A') ?? '—' }}</td>
+          <td class="nowrap">{{ ['on_time' => 'On time', 'late' => 'Late'][$sh->delivery_result] ?? '—' }}</td>
         </tr>
       @empty
-        <tr><td colspan="5" style="text-align:center;padding:20px">No activity matches these filters.</td></tr>
+        <tr><td colspan="8" style="text-align:center;padding:20px">No shipments match these filters.</td></tr>
       @endforelse
     </tbody>
   </table>

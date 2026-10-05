@@ -17,7 +17,7 @@ use Illuminate\Validation\Rule;
 class TrackingController extends Controller
 {
     /** Shipment statuses during which a vehicle may be tracked. */
-    public const TRACKABLE_STATUSES = ['in_transit', 'delayed'];
+    public const TRACKABLE_STATUSES = Shipment::ON_ROAD_STATUSES;
 
     /** Ignore positions sent closer together than this, per driver. */
     private const MIN_SECONDS_BETWEEN_PINGS = 20;

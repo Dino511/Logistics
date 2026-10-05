@@ -22,7 +22,7 @@
             'to' => ['lat' => (float) $s->destination_latitude, 'lng' => (float) $s->destination_longitude, 'label' => $s->destination_name],
             'status' => $s->status,
             'popup' => '<a href="'.e(route('shipments.show', $s)).'"><strong>'.e($s->tracking_number).'</strong></a><br>'
-                .e($s->origin_city).' &rarr; '.e($s->destination_city).'<br>'.e($s->statusLabel()),
+                .e($s->origin_city).' to '.e($s->destination_city).'<br>'.e($s->statusLabel()),
         ])
         ->values();
 @endphp

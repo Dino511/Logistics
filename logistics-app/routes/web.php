@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\EmergencyContactController;
@@ -43,6 +44,10 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
 
     // Everyone signed in can view shipments.
     Route::get('/shipments', [ShipmentController::class, 'index'])->name('shipments.index');
+    Route::get('/shipments/print', [ShipmentController::class, 'printList'])->name('shipments.print-list');
+
+    // Pickups and deliveries by day. Field Personnel see only their own (the controller scopes it).
+    Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar.index');
 
     // Read-only city/province/postal-code lookup for the shipment form's autocomplete.
     Route::get('/locations/search', [LocationController::class, 'search'])->name('locations.search');
@@ -73,6 +78,7 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
     });
 
     Route::get('/shipments/{shipment}', [ShipmentController::class, 'show'])->name('shipments.show');
+    Route::get('/shipments/{shipment}/print', [ShipmentController::class, 'print'])->name('shipments.print');
 
     // Field Personnel updating a delivery assigned to them (the controller checks the assignment).
     Route::post('/shipments/{shipment}/field-update', [ShipmentController::class, 'fieldUpdate'])->name('shipments.field-update');

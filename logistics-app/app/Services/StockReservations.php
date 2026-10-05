@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Shipment;
 use App\Models\ShipmentItem;
 use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -14,12 +15,12 @@ use Illuminate\Support\Facades\Cache;
  * counts goods already assigned to a Pending, In transit or Delayed shipment. What is
  * really free to ship is Inventory's quantity minus that reserved amount. Nothing is
  * stored separately: reservations are totalled from shipment_items, so they can't
- * drift, and a shipment releases its stock the moment it's Delivered or Cancelled.
+ * drift, and a shipment releases its stock the moment it's Delivered, Returned or Cancelled.
  */
 class StockReservations
 {
     /** Shipment statuses that still hold on to their stock. */
-    public const HOLDING_STATUSES = ['pending', 'in_transit', 'delayed'];
+    public const HOLDING_STATUSES = Shipment::OPEN_STATUSES;
 
     /**
      * Reserved quantity per "productId:locationId".

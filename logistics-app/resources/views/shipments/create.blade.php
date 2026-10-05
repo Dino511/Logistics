@@ -119,6 +119,9 @@
 
     <h2 class="section-title">Schedule &amp; assignment</h2>
     <div class="form-grid">
+      <div class="field"><label for="scheduled_pickup_at">Scheduled pickup (optional)</label>
+        <input type="datetime-local" id="scheduled_pickup_at" name="scheduled_pickup_at" value="{{ old('scheduled_pickup_at') }}"
+               min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
       <div class="field"><label for="scheduled_delivery_at">Scheduled delivery</label>
         <input type="datetime-local" id="scheduled_delivery_at" name="scheduled_delivery_at" value="{{ old('scheduled_delivery_at') }}" required
                min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
@@ -363,7 +366,7 @@
           <li role="option" id="${list.id}-opt-${i}" aria-selected="${i === activeIndex}">
             ${pinIcon}
             <span><strong>${highlight(r.city, q)}</strong><small>${escapeHtml(r.province)} · ${escapeHtml(r.postal_code)}</small></span>
-          </li>`).join('') + '<li class="loc-kbd-hint" aria-hidden="true">↑ ↓ to move · Enter to select · Esc to close</li>';
+          </li>`).join('') + '<li class="loc-kbd-hint" aria-hidden="true">Arrow keys to move · Enter to select · Esc to close</li>';
         list.hidden = false;
         [...list.querySelectorAll('[role=option]')].forEach((li, i) => li.addEventListener('mousedown', (e) => {
           e.preventDefault(); // keep focus in the input instead of blurring to the <li>

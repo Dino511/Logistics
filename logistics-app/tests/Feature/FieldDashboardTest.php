@@ -172,4 +172,13 @@ class FieldDashboardTest extends TestCase
             $this->actingAs($user)->put("/driver-dashboard/{$section->id}", ['title' => 'X', 'body' => 'Y'])->assertForbidden();
         }
     }
+
+    public function test_the_dashboard_explains_what_each_delivery_status_means(): void
+    {
+        $this->actingAs($this->field)->get('/dashboard')->assertOk()
+            ->assertSee('What each delivery status means')
+            ->assertSee('Out for delivery')
+            ->assertSee('Returned to sender')
+            ->assertSee('The driver tried to deliver but could not');
+    }
 }

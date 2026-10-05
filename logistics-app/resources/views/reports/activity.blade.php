@@ -69,8 +69,8 @@
 
     @if ($logs->hasPages())
       <div class="pager">
-        @if ($logs->previousPageUrl()) <a class="btn sm" href="{{ $logs->previousPageUrl() }}">← Newer</a> @else <span></span> @endif
-        @if ($logs->nextPageUrl()) <a class="btn sm" href="{{ $logs->nextPageUrl() }}">Older →</a> @endif
+        @if ($logs->previousPageUrl()) <a class="btn sm" href="{{ $logs->previousPageUrl() }}">Newer</a> @else <span></span> @endif
+        @if ($logs->nextPageUrl()) <a class="btn sm" href="{{ $logs->nextPageUrl() }}">Older</a> @endif
       </div>
     @endif
   </div>

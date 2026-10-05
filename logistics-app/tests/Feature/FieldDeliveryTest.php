@@ -198,4 +198,42 @@ class FieldDeliveryTest extends TestCase
 
         $this->assertSame([$mine->shipment_id], $list->pluck('shipment_id')->all());
     }
+
+    public function test_a_driver_can_report_a_failed_attempt_only_with_a_reason(): void
+    {
+        $s = $this->shipment('out_for_delivery');
+
+        $this->update($s, ['status' => 'delivery_attempted'])->assertSessionHasErrors('note');
+        $this->update($s, ['status' => 'delivery_attempted', 'note' => 'Gate locked, nobody answered'])->assertSessionHasNoErrors();
+
+        $this->assertSame('delivery_attempted', $s->refresh()->status);
+        $this->assertDatabaseHas('shipment_status_history', ['shipment_id' => $s->shipment_id, 'status' => 'delivery_attempted', 'note' => 'Gate locked, nobody answered']);
+    }
+
+    public function test_a_driver_moves_a_delivery_through_the_new_steps_but_cannot_return_or_cancel_it(): void
+    {
+        $s = $this->shipment('ready_for_pickup');
+        $this->assertSame(['picked_up'], $s->fieldNextStatuses());
+
+        $this->update($s, ['status' => 'picked_up'])->assertSessionHasNoErrors();
+        $this->update($s->refresh(), ['status' => 'out_for_delivery'])->assertSessionHasNoErrors();
+        $this->update($s->refresh(), ['status' => 'delivery_attempted', 'note' => 'No one home'])->assertSessionHasNoErrors();
+
+        $s->refresh();
+        $this->assertContains('held_for_pickup', $s->fieldNextStatuses());
+        $this->assertContains('returned', $s->allowedNextStatuses());
+        $this->update($s, ['status' => 'returned'])->assertSessionHasErrors('status');
+        $this->update($s, ['status' => 'cancelled'])->assertSessionHasErrors('status');
+        $this->assertSame('delivery_attempted', $s->refresh()->status);
+    }
+
+    public function test_every_status_has_a_label_a_description_and_a_way_out_unless_final(): void
+    {
+        foreach (Shipment::STATUSES as $status) {
+            $this->assertNotSame('', Shipment::description($status), $status);
+            $s = new Shipment(['status' => $status]);
+            $this->assertSame(in_array($status, Shipment::OPEN_STATUSES, true), $s->allowedNextStatuses() !== [], $status);
+        }
+        $this->assertSame('Returned to sender', Shipment::label('returned'));
+    }
 }

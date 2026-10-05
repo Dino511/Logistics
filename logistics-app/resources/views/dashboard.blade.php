@@ -68,7 +68,7 @@
       <a href="{{ route('dashboard', ['range' => 30]) }}" aria-current="{{ $range === 30 ? 'true' : 'false' }}">Last 30 days</a>
     </nav>
     <div class="db-actions">
-      <a class="btn" href="{{ route('dashboard.export', ['range' => $range]) }}">⬇ Export CSV</a>
+      <a class="btn" href="{{ route('dashboard.export', ['range' => $range]) }}">Export CSV</a>
       <a class="btn" href="{{ route('tracking.index') }}">📍 Live tracking</a>
       <a class="btn primary" href="{{ route('shipments.create') }}">+ New shipment</a>
     </div>
@@ -76,7 +76,7 @@
 
   {{-- Shipments at a glance --}}
   <section class="db-section">
-    <div class="db-section-title"><h2>Shipments</h2><a href="{{ route('shipments.index') }}">View all →</a></div>
+    <div class="db-section-title"><h2>Shipments</h2><a href="{{ route('shipments.index') }}">View all</a></div>
     <div class="db-kpis">
       @foreach ($stats as $s)
         <div class="db-kpi {{ $s['tone'] }}">
@@ -105,7 +105,7 @@
               <a href="{{ route('shipments.show', $a) }}">
                 <span><strong>{{ $a->tracking_number }}</strong><small>{{ $a->destination_city }} · {{ $a->driver?->name ?? 'Unassigned' }}</small></span>
                 <span style="text-align:right">
-                  <span class="badge b-delayed">{{ $a->status === 'delayed' ? $a->statusLabel() : 'Overdue' }}</span>
+                  <span class="badge b-delayed">{{ in_array($a->status, \App\Models\Shipment::PROBLEM_STATUSES, true) ? $a->statusLabel() : 'Overdue' }}</span>
                   <small>due {{ $a->scheduled_delivery_at->diffForHumans() }}</small>
                 </span>
               </a>
@@ -156,7 +156,7 @@
 
   {{-- Recent shipments --}}
   <section class="db-section">
-    <div class="db-section-title"><h2>Recent shipments</h2><a href="{{ route('shipments.index') }}">View all →</a></div>
+    <div class="db-section-title"><h2>Recent shipments</h2><a href="{{ route('shipments.index') }}">View all</a></div>
     <div class="db-card" style="padding:6px 8px">
       <div class="table-wrap">
         <table class="db-table">
@@ -165,7 +165,7 @@
             @forelse ($shipments as $sh)
               <tr data-href="{{ $sh['url'] }}">
                 <td><a href="{{ $sh['url'] }}">{{ $sh['id'] }}</a></td>
-                <td>{{ $sh['origin'] }} <span class="db-muted">→</span> {{ $sh['destination'] }}</td>
+                <td>{{ $sh['origin'] }} <span class="db-muted">to</span> {{ $sh['destination'] }}</td>
                 <td>{{ $sh['driver'] }}</td>
                 <td><span class="badge {{ $sh['class'] }}">{{ $sh['status'] }}</span></td>
                 <td class="db-muted">{{ $sh['eta'] }}</td>

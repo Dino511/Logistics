@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Logistics – @yield('title')</title>
+@include('partials.pwa')
 <script>
   // Apply saved theme before paint to avoid a light-mode flash.
   try {
@@ -172,6 +173,7 @@
       $navGroups = array_filter([
         'operations' => ['label' => __('Operations'), 'links' => array_filter([
           ['shipments.*', route('shipments.index'), __('Shipments')],
+          ['calendar.*', route('calendar.index'), __('Calendar')],
           $isOffice ? ['tracking.*', route('tracking.index'), __('Live tracking')] : null,
         ])],
         'fleet' => $isOffice ? ['label' => __('Fleet'), 'links' => [

@@ -29,8 +29,8 @@ class DashboardController extends Controller
 
         $open = Shipment::whereIn('status', StockReservations::HOLDING_STATUSES)->count();
         $deliveredToday = Shipment::whereDate('actual_delivery_at', today())->count();
-        $delayed = Shipment::where('status', 'delayed')->count();
-        $inTransit = Shipment::where('status', 'in_transit')->count();
+        $delayed = Shipment::whereIn('status', Shipment::PROBLEM_STATUSES)->count();
+        $inTransit = Shipment::whereIn('status', array_diff(Shipment::ON_ROAD_STATUSES, Shipment::PROBLEM_STATUSES))->count();
 
         $recent = Shipment::where('actual_delivery_at', '>=', now()->subDays($range))->selectRaw(
             "SUM(CASE WHEN delivery_result = 'on_time' THEN 1 ELSE 0 END) AS on_time, COUNT(*) AS total"
@@ -39,10 +39,10 @@ class DashboardController extends Controller
 
         // 'tone' colours the card: good, warn (needs attention) or neutral.
         $stats = [
-            ['label' => 'Active shipments', 'value' => $open, 'change' => 'pending, in transit or delayed', 'tone' => 'neutral', 'icon' => '📦'],
+            ['label' => 'Active shipments', 'value' => $open, 'change' => 'not delivered yet', 'tone' => 'neutral', 'icon' => '📦'],
             ['label' => 'In transit', 'value' => $inTransit, 'change' => 'on the road', 'tone' => 'neutral', 'icon' => '🚚'],
             ['label' => 'Delivered today', 'value' => $deliveredToday, 'change' => 'since midnight', 'tone' => 'good', 'icon' => '✅'],
-            ['label' => 'Delayed', 'value' => $delayed, 'change' => $delayed ? 'need attention' : 'none right now', 'tone' => $delayed ? 'warn' : 'good', 'icon' => '⏱️'],
+            ['label' => 'Delayed or failed', 'value' => $delayed, 'change' => $delayed ? 'need attention' : 'none right now', 'tone' => $delayed ? 'warn' : 'good', 'icon' => '⏱️'],
             ['label' => 'On-time rate', 'value' => $onTimeRate, 'change' => "last {$range} days", 'tone' => 'neutral', 'icon' => '🎯'],
         ];
 
@@ -54,10 +54,10 @@ class DashboardController extends Controller
             'delivered' => $days->map(fn ($d) => $delivered->filter(fn ($t) => $t->isSameDay($d))->count())->all(),
         ];
 
-        // Delayed, or past their scheduled time and still not delivered.
+        // Delayed or a failed delivery attempt, or past their scheduled time and still not delivered.
         $attention = Shipment::with('driver')
-            ->where(fn ($q) => $q->where('status', 'delayed')
-                ->orWhere(fn ($q) => $q->whereIn('status', ['pending', 'in_transit'])->where('scheduled_delivery_at', '<', now())))
+            ->where(fn ($q) => $q->whereIn('status', Shipment::PROBLEM_STATUSES)
+                ->orWhere(fn ($q) => $q->whereIn('status', Shipment::OPEN_STATUSES)->where('scheduled_delivery_at', '<', now())))
             ->orderBy('scheduled_delivery_at')
             ->limit(6)
             ->get();
@@ -136,12 +136,12 @@ class DashboardController extends Controller
         $week = null;
 
         if ($driver) {
-            // Delayed first (they need attention), then by when they're due.
+            // Problems first (they need attention), then by when they're due.
             $deliveries = Shipment::assignedToDriver($driver->id)
                 ->whereIn('status', StockReservations::HOLDING_STATUSES)
                 ->orderBy('scheduled_delivery_at')
                 ->get()
-                ->sortBy(fn ($s) => $s->status === 'delayed' ? 0 : 1)
+                ->sortBy(fn ($s) => in_array($s->status, Shipment::PROBLEM_STATUSES, true) ? 0 : 1)
                 ->values();
 
             $done = Shipment::assignedToDriver($driver->id)
@@ -150,7 +150,7 @@ class DashboardController extends Controller
             $week = [
                 'delivered' => $done->count(),
                 'on_time' => $done->count() ? round($done->where('delivery_result', 'on_time')->count() / $done->count() * 100) : null,
-                'delayed' => Shipment::assignedToDriver($driver->id)->where('status', 'delayed')->count(),
+                'delayed' => Shipment::assignedToDriver($driver->id)->whereIn('status', Shipment::PROBLEM_STATUSES)->count(),
             ];
         }
 

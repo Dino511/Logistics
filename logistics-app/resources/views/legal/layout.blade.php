@@ -24,7 +24,7 @@
 </head>
 <body>
   <main>
-    <a class="back" href="{{ route('login') }}">← Back to sign in</a>
+    <a class="back" href="{{ route('login') }}">Back to sign in</a>
     <article>
       <h1>@yield('title')</h1>
       <p class="updated">Last updated: September 23, 2026</p>

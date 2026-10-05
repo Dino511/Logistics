@@ -52,8 +52,7 @@
   .sd-end strong { color:var(--text); font-size:1.08rem; }
   .sd-end-label { font-size:.68rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--primary); }
   .sd-arrow { position:relative; width:clamp(80px, 22vw, 260px); height:2px; background:repeating-linear-gradient(to right, var(--border) 0 8px, transparent 8px 14px); }
-  .sd-arrow::after { content:''; position:absolute; right:-2px; top:-5px; border:6px solid transparent; border-left-color:var(--border); }
-  .sd-arrow span { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:34px; height:34px; display:grid; place-items:center; border-radius:50%; background:var(--card); border:1px solid var(--border); font-size:1rem; }
+  .sd-arrow span { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) scaleX(-1); width:34px; height:34px; display:grid; place-items:center; border-radius:50%; background:var(--card); border:1px solid var(--border); font-size:1rem; }
   .sd-facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin:0; padding-top:16px; border-top:1px solid var(--border); }
   .sd-facts dt { font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
   .sd-facts dd { margin:0; font-weight:600; font-size:.92rem; }
@@ -75,6 +74,12 @@
   .sd-more summary { cursor:pointer; color:var(--primary); }
   .sd-more p { margin:8px 0 0; line-height:1.5; }
   .sd-proof { width:100%; border-radius:10px; border:1px solid var(--border); display:block; margin-bottom:10px; }
+  .sd-proof-open { display:block; width:100%; padding:0; border:0; background:none; cursor:zoom-in; }
+  .sd-proof-open:focus-visible { outline:2px solid var(--primary); outline-offset:2px; border-radius:10px; }
+  .sd-proof-dialog { padding:0; border:0; border-radius:12px; background:transparent; max-width:min(96vw, 1100px); max-height:92vh; overflow:visible; }
+  .sd-proof-dialog::backdrop { background:rgba(8,12,24,.8); }
+  .sd-proof-dialog img { display:block; max-width:min(96vw, 1100px); max-height:92vh; border-radius:12px; }
+  .sd-proof-close { position:absolute; top:8px; right:8px; width:40px; height:40px; border:0; border-radius:50%; background:rgba(0,0,0,.6); color:#fff; font-size:1.5rem; line-height:1; cursor:pointer; }
 
   /* ---- Tabs: notes, items, history, trucks ---- */
   .sd-tabs { padding:0; overflow:hidden; }
@@ -98,7 +103,7 @@
     .sd-route { grid-template-columns:1fr; gap:10px; }
     .sd-end:last-child { text-align:left; }
     .sd-arrow { width:2px; height:28px; margin-left:16px; background:repeating-linear-gradient(to bottom, var(--border) 0 6px, transparent 6px 10px); }
-    .sd-arrow::after, .sd-arrow span { display:none; }
+    .sd-arrow span { display:none; }
     .sd-facts { grid-template-columns:1fr 1fr; gap:10px 12px; } /* keeps the driver's actions close to the top */
   }
   .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
@@ -113,7 +118,7 @@
     $fieldOptions = $isAssigned ? $shipment->fieldNextStatuses() : [];
     $canShare = $isAssigned && in_array($shipment->status, \App\Http\Controllers\TrackingController::TRACKABLE_STATUSES, true);
     $officeCanUpdate = $canManage && count($shipment->allowedNextStatuses());
-    $canDispatch = $canManage && $shipment->status === 'pending';
+    $canDispatch = $canManage && in_array($shipment->status, ['pending', 'ready_for_pickup'], true);
     $hasProof = $shipment->proof_photo_path || $shipment->received_by;
     $hasActions = $fieldOptions || $canShare || $officeCanUpdate || $canDispatch || $hasProof;
     $units = $shipment->items->sum('quantity');
@@ -128,7 +133,10 @@
         @if ($shipment->delivery_result === 'on_time') <span class="badge b-delivered">{{ __('Delivered on time') }}</span>
         @elseif ($shipment->delivery_result === 'late') <span class="badge b-delayed">{{ __('Delivered late') }}</span> @endif
       </div>
-      <a class="btn sm" href="{{ route('shipments.index') }}">← {{ __('All shipments') }}</a>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <a class="btn sm" href="{{ route('shipments.print', $shipment) }}" target="_blank" rel="noopener">{{ __('Print / PDF') }}</a>
+        <a class="btn sm" href="{{ route('shipments.index') }}">{{ __('All shipments') }}</a>
+      </div>
     </div>
 
     <div class="sd-route">
@@ -279,11 +287,12 @@
             @if ($officeCanUpdate)
               <form class="sd-stack" method="POST" action="{{ route('shipments.status', $shipment) }}">
                 @csrf @method('PATCH')
-                <select name="status" aria-label="New status">
+                <select name="status" aria-label="New status" data-status-help="office_status_help">
                   @foreach ($shipment->allowedNextStatuses() as $next)
-                    <option value="{{ $next }}">{{ __('Mark as :status', ['status' => __(\App\Models\Shipment::label($next))]) }}</option>
+                    <option value="{{ $next }}" data-desc="{{ __(\App\Models\Shipment::description($next)) }}">{{ __('Mark as :status', ['status' => __(\App\Models\Shipment::label($next))]) }}</option>
                   @endforeach
                 </select>
+                <small class="hint" id="office_status_help" aria-live="polite"></small>
                 <input type="text" name="note" placeholder="{{ __('Note (optional)') }}" maxlength="500" aria-label="{{ __('Note') }}">
                 <button type="submit" class="btn primary">{{ __('Update status') }}</button>
               </form>
@@ -309,12 +318,13 @@
             <div class="field">
               <label for="field_status">{{ __('What happened?') }}</label>
               {{-- No default: finishing a delivery by accident releases its stock and ends tracking. --}}
-              <select id="field_status" name="status" required>
+              <select id="field_status" name="status" required data-status-help="field_status_help">
                 <option value="" disabled @selected(! old('status'))>{{ __('Choose what happened…') }}</option>
                 @foreach ($fieldOptions as $next)
-                  <option value="{{ $next }}" @selected(old('status') === $next)>{{ __(['delivered' => 'Delivered', 'delayed' => 'Delayed', 'in_transit' => 'Back on the road (in transit)'][$next]) }}</option>
+                  <option value="{{ $next }}" data-desc="{{ __(\App\Models\Shipment::description($next)) }}" @selected(old('status') === $next)>{{ $next === 'in_transit' && $shipment->status === 'delayed' ? __('Back on the road (in transit)') : __(\App\Models\Shipment::label($next)) }}</option>
                 @endforeach
               </select>
+              <small class="hint" id="field_status_help" aria-live="polite"></small>
             </div>
             <div data-when="delivered">
               <div class="field">
@@ -324,7 +334,7 @@
               <div class="field">
                 <label for="proof_photo">{{ __('Proof of delivery photo') }}</label>
                 <input id="proof_photo" type="file" name="proof_photo" accept="image/jpeg,image/png,image/webp" capture="environment">
-                <small class="hint">{{ __('Opens the camera on a phone. JPG, PNG or WebP, up to 5 MB.') }}</small>
+                <small class="hint" id="proof_photo_hint" aria-live="polite">{{ __('Opens the camera on a phone. Large photos are made smaller automatically before sending.') }}</small>
               </div>
             </div>
             <div class="field">
@@ -351,9 +361,13 @@
           <section class="card sd-action">
             <h2>{{ __('Proof of delivery') }}</h2>
             @if ($shipment->proofPhotoUrl())
-              <a href="{{ $shipment->proofPhotoUrl() }}" target="_blank" rel="noopener">
+              <button type="button" class="sd-proof-open" id="proofOpen" aria-haspopup="dialog" aria-label="{{ __('View photo larger') }}">
                 <img class="sd-proof" src="{{ $shipment->proofPhotoUrl() }}" alt="{{ __('Proof of delivery photo') }}">
-              </a>
+              </button>
+              <dialog class="sd-proof-dialog" id="proofDialog" aria-label="{{ __('Proof of delivery photo') }}">
+                <button type="button" class="sd-proof-close" id="proofClose" aria-label="{{ __('Close') }}">&times;</button>
+                <img src="{{ $shipment->proofPhotoUrl() }}" alt="{{ __('Proof of delivery photo') }}">
+              </dialog>
             @endif
             <p class="kv">
               <span>{{ __('Received by:') }}</span> {{ $shipment->received_by ?? '—' }}<br>
@@ -369,19 +383,75 @@
 @push('scripts')
 <script>
   // Delivery form: photo + receiver only for "Delivered"; a reason is required for "Delayed".
+  // The proof photo opens larger in a popup over the page. Esc, the close button or a
+  // click outside the photo closes it.
+  (function () {
+    const dialog = document.getElementById('proofDialog');
+    if (!dialog || !dialog.showModal) return;
+    document.getElementById('proofOpen').addEventListener('click', () => dialog.showModal());
+    document.getElementById('proofClose').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
+  })();
+
+  // Shrink the proof photo in the browser before it is sent: phone cameras produce files
+  // far bigger than the server accepts, and a smaller one uploads faster on mobile data.
+  // If anything here fails, the original file is left in place and sent as it is.
+  (function () {
+    const input = document.getElementById('proof_photo');
+    if (!input || !window.DataTransfer || !HTMLCanvasElement.prototype.toBlob) return;
+    const hint = document.getElementById('proof_photo_hint');
+    const MAX_SIDE = 1600, QUALITY = 0.8, SKIP_UNDER = 600 * 1024;
+    const T = {{ Js::from(['working' => __('Preparing photo…'), 'ready' => __('Photo ready to send')]) }};
+    const kb = (bytes) => bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file || !file.type.startsWith('image/')) return;
+      if (file.size <= SKIP_UNDER) { hint.textContent = T.ready + ' (' + kb(file.size) + ')'; return; }
+      hint.textContent = T.working;
+      const url = URL.createObjectURL(file);
+      try {
+        const img = new Image();
+        await new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; img.src = url; });
+        const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', QUALITY));
+        if (blob && blob.size < file.size && input.files[0] === file) {
+          const swap = new DataTransfer();
+          swap.items.add(new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: Date.now() }));
+          input.files = swap.files;
+        }
+      } catch (e) { /* keep the original */ }
+      URL.revokeObjectURL(url);
+      hint.textContent = T.ready + ' (' + kb(input.files[0].size) + ')';
+    });
+  })();
+
+  // Under each status dropdown, explain what the chosen status means.
+  document.querySelectorAll('select[data-status-help]').forEach((select) => {
+    const help = document.getElementById(select.dataset.statusHelp);
+    const sync = () => { help.textContent = select.selectedOptions[0]?.dataset.desc || ''; };
+    select.addEventListener('change', sync);
+    sync();
+  });
+
   (function () {
     const status = document.getElementById('field_status');
     if (!status) return;
     const delivered = document.querySelector('[data-when="delivered"]');
     const note = document.getElementById('field_note');
     const noteLabel = document.getElementById('field_note_label');
+    const problems = @json(\App\Models\Shipment::PROBLEM_STATUSES);
     function sync() {
       const s = status.value;
       delivered.hidden = s !== 'delivered';
       document.getElementById('received_by').required = s === 'delivered';
       document.getElementById('proof_photo').required = s === 'delivered';
-      note.required = s === 'delayed';
-      noteLabel.textContent = s === 'delayed' ? @json(__('Reason for the delay')) : @json(__('Note (optional)'));
+      note.required = problems.includes(s);
+      noteLabel.textContent = s === 'delayed' ? @json(__('Reason for the delay')) : (s === 'delivery_attempted' ? @json(__('Why could it not be delivered?')) : @json(__('Note (optional)')));
     }
     status.addEventListener('change', sync);
     sync();
@@ -395,11 +465,16 @@
   // permission the first time. Positions go out at most once a minute while the page is open.
   (function () {
     const btn = document.getElementById('share-toggle');
-    const S = {{ Js::from(['noBrowser' => __('This browser cannot share location.'), 'stopped' => __('Sharing stopped: this delivery is finished or no longer on the road.'), 'lastSent' => __('Sharing · last sent'), 'retry' => __('Sharing, but the last update did not go through. Will retry.'), 'getting' => __('Getting your location…'), 'refused' => __('Location permission was refused. Allow it in the browser settings to share.'), 'noGps' => __('Could not get your location. Check that GPS is on.'), 'stop' => __('Stop sharing'), 'start' => __('Start sharing'), 'notSharing' => __('Not sharing.')]) }};
+    const S = {{ Js::from(['noBrowser' => __('This browser cannot share location.'), 'needsHttps' => __('Location sharing only works on a secure (https) address. Ask the office for the https link.'), 'stopped' => __('Sharing stopped: this delivery is finished or no longer on the road.'), 'lastSent' => __('Sharing · last sent'), 'retry' => __('Sharing, but the last update did not go through. Will retry.'), 'getting' => __('Getting your location…'), 'refused' => __('Location permission was refused. Allow it in the browser settings to share.'), 'noGps' => __('Could not get your location. Check that GPS is on.'), 'stop' => __('Stop sharing'), 'start' => __('Start sharing'), 'notSharing' => __('Not sharing.')]) }};
     const memoryKey = 'sharing:' + @json($shipment->shipment_id);
     // No sharing card means the delivery is no longer on the road: forget the
     // "keep sharing after reload" flag so it can't carry over.
     if (!btn) { try { sessionStorage.removeItem(memoryKey); } catch (e) {} return; }
+    // Browsers refuse to give a position on a plain http address (other than localhost).
+    if (!window.isSecureContext) {
+      btn.disabled = true; document.getElementById('share-status').textContent = S.needsHttps;
+      return;
+    }
     if (!('geolocation' in navigator)) {
       if (btn) { btn.disabled = true; document.getElementById('share-status').textContent = S.noBrowser; }
       return;
