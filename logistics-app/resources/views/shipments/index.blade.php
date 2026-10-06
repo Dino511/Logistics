@@ -51,6 +51,7 @@
         <input type="search" name="q" value="{{ $search }}" placeholder="Search tracking no. or destination" aria-label="Search shipments">
         <select name="status" aria-label="Filter by status" onchange="this.form.submit()">
           <option value="">All statuses</option>
+          <option value="open" @selected($status === 'open')>Not delivered yet</option>
           @foreach (\App\Models\Shipment::STATUSES as $s)
             <option value="{{ $s }}" @selected($status === $s)>{{ \App\Models\Shipment::label($s) }}</option>
           @endforeach

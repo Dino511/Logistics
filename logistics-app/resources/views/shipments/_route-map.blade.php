@@ -20,6 +20,11 @@
         ->map(fn ($s) => [
             'from' => ['lat' => (float) $s->origin_latitude, 'lng' => (float) $s->origin_longitude, 'label' => $s->origin_name],
             'to' => ['lat' => (float) $s->destination_latitude, 'lng' => (float) $s->destination_longitude, 'label' => $s->destination_name],
+            // Extra pickup stops (after the origin) the route passes through, in order.
+            'via' => $s->relationLoaded('pickups')
+                ? $s->pickups->skip(1)->filter(fn ($p) => $p->latitude !== null && $p->longitude !== null)
+                    ->map(fn ($p) => ['lat' => (float) $p->latitude, 'lng' => (float) $p->longitude, 'label' => $p->sequence.' · '.$p->name])->values()->all()
+                : [],
             'status' => $s->status,
             'popup' => '<a href="'.e(route('shipments.show', $s)).'"><strong>'.e($s->tracking_number).'</strong></a><br>'
                 .e($s->origin_city).' to '.e($s->destination_city).'<br>'.e($s->statusLabel()),
@@ -98,14 +103,15 @@
         // Suggested road route from OSRM, remembered in the browser so the free
         // service isn't asked again for the same trip.
         async function roadRoute(r) {
-          const key = 'osrm:' + [r.from.lat, r.from.lng, r.to.lat, r.to.lng].map((n) => n.toFixed(5)).join(',');
+          const stops = [r.from, ...r.via, r.to];
+          const key = 'osrm:' + stops.flatMap((p) => [p.lat, p.lng]).map((n) => n.toFixed(5)).join(',');
           try {
             const cached = localStorage.getItem(key);
             if (cached) return JSON.parse(cached);
           } catch (e) { /* storage unavailable */ }
 
           const url = 'https://router.project-osrm.org/route/v1/driving/'
-            + r.from.lng + ',' + r.from.lat + ';' + r.to.lng + ',' + r.to.lat
+            + stops.map((p) => p.lng + ',' + p.lat).join(';')
             + '?overview=full&geometries=geojson';
           const res = await fetch(url);
           if (!res.ok) throw new Error('OSRM ' + res.status);
@@ -123,10 +129,9 @@
         }
 
         const lines = routes.map((r) => {
-          addPoint(r.from);
-          addPoint(r.to);
+          [r.from, ...r.via, r.to].forEach(addPoint);
           // Placeholder straight line until the road route arrives.
-          return L.polyline([[r.from.lat, r.from.lng], [r.to.lat, r.to.lng]], {
+          return L.polyline([r.from, ...r.via, r.to].map((p) => [p.lat, p.lng]), {
             color: '#64748b', weight: 3, dashArray: '8 8', opacity: 0.8,
           }).addTo(map).bindPopup(r.popup);
         });
@@ -162,7 +167,7 @@
         (async () => {
           for (let i = 0; i < routes.length; i++) {
             const r = routes[i];
-            const samePlace = r.from.lat === r.to.lat && r.from.lng === r.to.lng;
+            const samePlace = !r.via.length && r.from.lat === r.to.lat && r.from.lng === r.to.lng;
             let route = null;
 
             if (!samePlace) {

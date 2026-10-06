@@ -30,6 +30,7 @@ trait MigratesCoreTables
             '2026_09_29_000001_create_emergency_contacts_table',
             '2026_09_29_000002_add_field_position_to_users_table',
             '2026_09_29_000004_add_locale_to_users_table',
+            '2026_10_06_000001_create_shipment_pickups_table',
         ])];
     }
 

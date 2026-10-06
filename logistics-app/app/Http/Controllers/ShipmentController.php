@@ -9,6 +9,7 @@ use App\Models\Inventory\Location;
 use App\Models\Inventory\Stock;
 use App\Models\Inventory\Supplier;
 use App\Models\Shipment;
+use App\Models\ShipmentPickup;
 use App\Models\Vehicle;
 use App\Models\VehicleLocationPing;
 use App\Services\Fleet\FleetAllocationService;
@@ -73,6 +74,8 @@ class ShipmentController extends Controller
                 ->map(fn ($s) => [
                     'key' => "{$s->product_id}:{$s->location_id}",
                     'label' => "{$s->product->name} ({$s->product->sku}) – {$s->location->name}",
+                    'product' => "{$s->product->name} ({$s->product->sku})",
+                    'location_id' => (int) $s->location_id,
                     'available' => $reservations->available((int) $s->quantity, $reserved["{$s->product_id}:{$s->location_id}"] ?? 0),
                 ])
                 ->filter(fn ($o) => $o['available'] > 0)
@@ -92,6 +95,7 @@ class ShipmentController extends Controller
                         'name' => $l->name,
                         'address' => (string) $l->address,
                         'type' => 'Location',
+                        'location_id' => (int) $l->id,
                         'sub' => $l->company->name ?? null,
                         'lat' => $l->latitude,
                         'lng' => $l->longitude,
@@ -165,7 +169,30 @@ class ShipmentController extends Controller
 
     public function store(Request $request, Geocoder $geocoder, StockReservations $reservations)
     {
-        $data = $request->validate([
+        // Extra pickup stops (pickup2_*, pickup3_*, ...): each is optional, but once any part
+        // of a stop is filled in, its name, address and city are all needed.
+        $pickupRules = $pickupNames = [];
+        foreach (range(2, Shipment::MAX_PICKUPS) as $n) {
+            $p = "pickup{$n}";
+            $pickupRules += [
+                "{$p}_name" => ['nullable', "required_with:{$p}_address,{$p}_city", 'string', 'max:150'],
+                "{$p}_address" => ['nullable', "required_with:{$p}_name,{$p}_city", 'string', 'max:255'],
+                "{$p}_city" => ['nullable', "required_with:{$p}_name,{$p}_address", 'string', 'max:100'],
+                "{$p}_province" => ['nullable', 'string', 'max:100'],
+                "{$p}_postal_code" => ['nullable', 'string', 'max:20'],
+                "{$p}_scheduled_at" => ['nullable', 'date', 'after:now', 'before_or_equal:scheduled_delivery_at'],
+                // Set by the form when a pinned Inventory location/supplier is picked.
+                "{$p}_latitude" => ['nullable', 'numeric', 'between:-90,90'],
+                "{$p}_longitude" => ['nullable', 'numeric', 'between:-180,180'],
+            ];
+            foreach (['name', 'address', 'city', 'province', 'postal_code'] as $part) {
+                $pickupNames["{$p}_{$part}"] = "pickup {$n} ".str_replace('_', ' ', $part);
+            }
+            $pickupNames["{$p}_scheduled_at"] = "pickup {$n} time";
+        }
+        $pickupNames['scheduled_delivery_at'] = 'scheduled delivery';
+
+        $data = $request->validate($pickupRules + [
             'origin_name' => ['required', 'string', 'max:150'],
             'origin_address' => ['required', 'string', 'max:255'],
             'origin_city' => ['required', 'string', 'max:100'],
@@ -176,8 +203,8 @@ class ShipmentController extends Controller
             'destination_city' => ['required', 'string', 'max:100'],
             'destination_province' => ['nullable', 'string', 'max:100'],
             'destination_postal_code' => ['nullable', 'string', 'max:20'],
-            'scheduled_pickup_at' => ['nullable', 'date', 'after:now', 'before_or_equal:scheduled_delivery_at'],
-            'scheduled_delivery_at' => ['required', 'date', 'after:now'],
+            'scheduled_pickup_at' => ['required', 'date', 'after:now'],
+            'scheduled_delivery_at' => ['required', 'date', 'after:now', 'after_or_equal:scheduled_pickup_at'],
             'driver_id' => ['nullable', 'integer', 'exists:drivers,id'],
             'vehicle_id' => ['nullable', 'integer', 'exists:vehicles,id'],
             'notes' => ['nullable', 'string', 'max:1000'],
@@ -185,12 +212,41 @@ class ShipmentController extends Controller
             'items.*.key' => ['required', 'string', 'regex:/^\d+:\d+$/'],
             'items.*.quantity' => ['required', 'integer', 'min:1', 'max:1000000'],
             'items.*.unit_weight_kg' => ['nullable', 'numeric', 'min:0', 'max:999999'],
+            // Which pickup stop on the form the line belongs to (1 is the origin).
+            'items.*.pickup' => ['nullable', 'integer', 'between:1,'.Shipment::MAX_PICKUPS],
             // Set by the form when a pinned Inventory location/supplier is picked.
             'origin_latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'origin_longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'destination_latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'destination_longitude' => ['nullable', 'numeric', 'between:-180,180'],
-        ]);
+        ], [
+            'scheduled_pickup_at.required' => 'Enter the scheduled pickup date and time.',
+            'scheduled_pickup_at.after' => 'The scheduled pickup must be in the future.',
+            'scheduled_delivery_at.required' => 'Enter the scheduled delivery date and time.',
+            'scheduled_delivery_at.after' => 'The scheduled delivery must be in the future.',
+            'scheduled_delivery_at.after_or_equal' => "The scheduled delivery can't be earlier than the scheduled pickup.",
+        ], $pickupNames);
+
+        // Pull the extra stops out of the validated data, skipping any left blank.
+        $extraPickups = [];
+        $stopNumbers = [1 => 1]; // the form's stop number => the saved sequence (blank stops leave gaps)
+        foreach (range(2, Shipment::MAX_PICKUPS) as $n) {
+            $p = "pickup{$n}";
+            if (filled($data["{$p}_name"] ?? null)) {
+                $stopNumbers[$n] = count($extraPickups) + 2;
+                $extraPickups[] = [
+                    'latitude' => $data["{$p}_latitude"] ?? null,
+                    'longitude' => $data["{$p}_longitude"] ?? null,
+                    'name' => $data["{$p}_name"],
+                    'address' => $data["{$p}_address"],
+                    'city' => $data["{$p}_city"],
+                    'province' => $data["{$p}_province"] ?? null,
+                    'postal_code' => $data["{$p}_postal_code"] ?? null,
+                    'scheduled_at' => $data["{$p}_scheduled_at"] ?? null,
+                ];
+            }
+        }
+        $data = array_diff_key($data, $pickupRules);
 
         // Check stock up front so a shortage is reported before the slower map lookup;
         // it's checked again below, under the lock, right before saving.
@@ -203,20 +259,42 @@ class ShipmentController extends Controller
                 [$data["{$end}_latitude"], $data["{$end}_longitude"]] = $point ?? [null, null];
             }
         }
+        foreach ($extraPickups as &$stop) {
+            if (empty($stop['latitude']) || empty($stop['longitude'])) {
+                [$stop['latitude'], $stop['longitude']] = $geocoder->locate($stop['address'], $stop['city'], $stop['province']) ?? [null, null];
+            }
+        }
+        unset($stop);
 
         // One shipment at a time from here: re-check what's free and save before anyone
         // else can reserve the same stock.
         try {
-            [$shipment, $lines] = $reservations->exclusively(function () use ($data, $request, $reservations) {
+            [$shipment, $lines] = $reservations->exclusively(function () use ($data, $extraPickups, $stopNumbers, $request, $reservations) {
                 $lines = $this->resolveItems($data['items'], $reservations->reserved());
 
-                $shipment = DB::transaction(function () use ($data, $lines, $request) {
+                $shipment = DB::transaction(function () use ($data, $extraPickups, $stopNumbers, $lines, $request) {
                     $shipment = Shipment::create(collect($data)->except('items')->all() + [
                         'tracking_number' => $this->newTrackingNumber(),
                         'created_by' => $request->user()->id,
                         'status' => 'pending',
                     ]);
-                    $shipment->items()->createMany($lines);
+                    // Each item remembers its stop only when there are several; a line whose
+                    // stop was left blank falls back to the origin.
+                    $shipment->items()->createMany(array_map(fn ($line) => collect($line)->except('pickup')->all() + [
+                        'pickup_sequence' => $extraPickups ? ($stopNumbers[$line['pickup']] ?? 1) : null,
+                    ], $lines));
+                    // Several pickups: list every stop in order, starting with the origin.
+                    if ($extraPickups) {
+                        $first = [
+                            'name' => $data['origin_name'], 'address' => $data['origin_address'], 'city' => $data['origin_city'],
+                            'province' => $data['origin_province'] ?? null, 'postal_code' => $data['origin_postal_code'] ?? null,
+                            'latitude' => $data['origin_latitude'] ?? null, 'longitude' => $data['origin_longitude'] ?? null,
+                            'scheduled_at' => $data['scheduled_pickup_at'],
+                        ];
+                        foreach ([$first, ...$extraPickups] as $i => $stop) {
+                            $shipment->pickups()->create($stop + ['sequence' => $i + 1]);
+                        }
+                    }
                     $shipment->history()->create([
                         'status' => 'pending',
                         'note' => 'Shipment created',
@@ -252,7 +330,7 @@ class ShipmentController extends Controller
             $shipment->saveQuietly();
         }
 
-        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'shipmentNotes.user.avatar']);
+        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'shipmentNotes.user.avatar', 'pickups.collector']);
 
         // Office roles see where the vehicle is, while it's on the road and the driver shares.
         $user = request()->user();
@@ -268,7 +346,7 @@ class ShipmentController extends Controller
     /** Printable copy of one shipment. The browser's print dialog saves it as a PDF. */
     public function print(Shipment $shipment)
     {
-        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver']);
+        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'pickups']);
 
         ActivityLog::record('report', "Printed shipment {$shipment->tracking_number}", $shipment);
 
@@ -290,7 +368,7 @@ class ShipmentController extends Controller
             'shipments' => $query->limit(self::PRINT_LIMIT)->get(),
             'total' => $total,
             'limit' => self::PRINT_LIMIT,
-            'status' => in_array($status, Shipment::STATUSES, true) ? $status : null,
+            'status' => $status === 'open' || in_array($status, Shipment::STATUSES, true) ? $status : null,
             'search' => $search,
         ]);
     }
@@ -299,6 +377,8 @@ class ShipmentController extends Controller
     private function listQuery(?string $status, string $search)
     {
         return Shipment::query()
+            // "open" is every status that isn't finished yet (the reminder banner links here).
+            ->when($status === 'open', fn ($q) => $q->whereIn('status', Shipment::OPEN_STATUSES))
             ->when(in_array($status, Shipment::STATUSES, true), fn ($q) => $q->where('status', $status))
             ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('tracking_number', 'like', "%{$search}%")
@@ -318,6 +398,9 @@ class ShipmentController extends Controller
 
         if (! in_array($data['status'], $shipment->allowedNextStatuses(), true)) {
             return back()->with('error', "A {$shipment->statusLabel()} shipment can't be changed to ".Shipment::label($data['status']).'.');
+        }
+        if ($blocked = $this->pickupsStillToCollect($shipment, $data['status'])) {
+            return back()->with('error', $blocked);
         }
 
         $this->applyStatus($shipment, $data['status'], $data['note'] ?? null, $request->user()->id);
@@ -347,6 +430,10 @@ class ShipmentController extends Controller
             'proof_photo.required' => 'Take or attach a photo as proof of delivery.',
         ]);
 
+        if ($blocked = $this->pickupsStillToCollect($shipment, $data['status'])) {
+            return back()->withErrors(['status' => $blocked])->withInput();
+        }
+
         $extra = [];
         if ($data['status'] === 'delivered') {
             $extra = [
@@ -371,6 +458,65 @@ class ShipmentController extends Controller
 
         return back()->with('status', __('Delivery updated: :status.', ['status' => __(Shipment::label($data['status']))])
             .($data['status'] === 'delivered' ? ' '.__('Location sharing has stopped because the delivery is finished.') : ''));
+    }
+
+    /**
+     * Confirm that one pickup stop has been collected. Open to office staff and to the
+     * driver assigned to the shipment. Once every stop is collected, a shipment that was
+     * Ready for pickup moves to Picked up by itself.
+     */
+    public function collectPickup(Request $request, Shipment $shipment, ShipmentPickup $pickup)
+    {
+        $user = $request->user();
+        $isOffice = $user->isSuperAdmin() || $user->hasRole('manager', 'logistics_coordinator');
+        abort_unless($isOffice || $shipment->isAssignedToDriver($user->driver), 403);
+        abort_unless((int) $pickup->shipment_id === (int) $shipment->shipment_id, 404);
+
+        if ($shipment->status === 'pending' || ! in_array($shipment->status, Shipment::OPEN_STATUSES, true)) {
+            return back()->with('error', $shipment->status === 'pending'
+                ? __('This shipment has not been released for pickup yet.')
+                : __('This shipment is finished, so its pickups can no longer be changed.'));
+        }
+        if ($pickup->isCollected()) {
+            return back()->with('status', __('That pickup was already collected.'));
+        }
+
+        $total = $shipment->pickups()->count();
+        DB::transaction(function () use ($shipment, $pickup, $user, $total) {
+            $pickup->update(['picked_up_at' => now(), 'picked_up_by' => $user->id]);
+            $shipment->history()->create([
+                'status' => $shipment->status,
+                'note' => "Collected pickup {$pickup->sequence} of {$total}: {$pickup->name}",
+                'changed_by' => $user->id,
+                'changed_at' => now(),
+            ]);
+        });
+
+        ActivityLog::record('status_changed', "Shipment {$shipment->tracking_number}: collected pickup {$pickup->sequence} of {$total} ({$pickup->name})", $shipment);
+
+        $left = $shipment->pickups()->whereNull('picked_up_at')->count();
+        if ($left === 0 && $shipment->status === 'ready_for_pickup') {
+            $this->applyStatus($shipment, 'picked_up', 'All pickups collected.', $user->id);
+        }
+
+        return back()->with('status', $left
+            ? trans_choice('Pickup collected. :count more to collect.|Pickup collected. :count more to collect.', $left)
+            : __('All pickups collected.'));
+    }
+
+    /**
+     * With several pickup stops, a shipment can't be called picked up, out for delivery
+     * or delivered while any stop is still to be collected. Returns the reason, or null.
+     */
+    private function pickupsStillToCollect(Shipment $shipment, string $status): ?string
+    {
+        if (! in_array($status, ['picked_up', 'out_for_delivery', 'delivered'], true)) {
+            return null;
+        }
+
+        $left = $shipment->pickups()->whereNull('picked_up_at')->count();
+
+        return $left ? trans_choice('Collect every pickup first: :count stop is still to be collected.|Collect every pickup first: :count stops are still to be collected.', $left) : null;
     }
 
     /** Change a shipment's status, add it to the history and the activity log. */
@@ -433,41 +579,59 @@ class ShipmentController extends Controller
 
     /**
      * Turn the submitted lines into rows, taking SKU, name and available stock from the
-     * Inventory database rather than trusting the browser. Duplicate lines are merged.
+     * Inventory database rather than trusting the browser. Duplicate lines at the same
+     * pickup are merged. Each row carries 'pickup': the form's stop number it belongs to
+     * (1 is the origin), which store() turns into the saved stop sequence.
      * $reserved is StockReservations::reserved(): stock already promised to open shipments.
      */
     private function resolveItems(array $items, array $reserved): array
     {
         $wanted = [];
+        $totals = []; // per product/location, across every pickup: what the stock check counts
         foreach ($items as $item) {
-            $wanted[$item['key']]['quantity'] = ($wanted[$item['key']]['quantity'] ?? 0) + (int) $item['quantity'];
+            $pickup = max(1, (int) ($item['pickup'] ?? 1));
+            $id = "{$item['key']}@{$pickup}";
+            $wanted[$id] ??= ['key' => $item['key'], 'pickup' => $pickup, 'quantity' => 0];
+            $wanted[$id]['quantity'] += (int) $item['quantity'];
+            $totals[$item['key']] = ($totals[$item['key']] ?? 0) + (int) $item['quantity'];
             // Later lines for the same product win if they set a weight; keeps this simple
             // since duplicate lines for one product are an edge case, not the normal path.
             if (! empty($item['unit_weight_kg'])) {
-                $wanted[$item['key']]['unit_weight_kg'] = (float) $item['unit_weight_kg'];
+                $wanted[$id]['unit_weight_kg'] = (float) $item['unit_weight_kg'];
             }
         }
 
         $lines = [];
         $errors = [];
-        foreach ($wanted as $key => $wantedLine) {
-            $qty = $wantedLine['quantity'];
+        $stocks = []; // per product/location: the stock row, or null once it has failed a check
+        foreach ($wanted as $wantedLine) {
+            $key = $wantedLine['key'];
             [$productId, $locationId] = array_map('intval', explode(':', $key));
-            $stock = Stock::with('product')->where('product_id', $productId)->where('location_id', $locationId)->first();
 
-            if (! $stock || ! $stock->product || ! $stock->product->is_active) {
-                $errors[] = 'One of the selected products is no longer available.';
+            if (! array_key_exists($key, $stocks)) {
+                $stock = Stock::with('product')->where('product_id', $productId)->where('location_id', $locationId)->first();
+                $stocks[$key] = null;
 
-                continue;
+                if (! $stock || ! $stock->product || ! $stock->product->is_active) {
+                    $errors[] = 'One of the selected products is no longer available.';
+
+                    continue;
+                }
+                $qty = $totals[$key];
+                $onHand = (int) $stock->quantity;
+                $held = $reserved[$key] ?? 0;
+                $free = max(0, $onHand - $held);
+                if ($qty > $free) {
+                    $errors[] = $held > 0
+                        ? "{$stock->product->name}: only {$free} available ({$onHand} in stock, {$held} reserved for other shipments), but {$qty} requested."
+                        : "{$stock->product->name}: only {$onHand} in stock, but {$qty} requested.";
+
+                    continue;
+                }
+                $stocks[$key] = $stock;
             }
-            $onHand = (int) $stock->quantity;
-            $held = $reserved[$key] ?? 0;
-            $free = max(0, $onHand - $held);
-            if ($qty > $free) {
-                $errors[] = $held > 0
-                    ? "{$stock->product->name}: only {$free} available ({$onHand} in stock, {$held} reserved for other shipments), but {$qty} requested."
-                    : "{$stock->product->name}: only {$onHand} in stock, but {$qty} requested.";
 
+            if (! $stock = $stocks[$key]) {
                 continue;
             }
             $lines[] = [
@@ -475,8 +639,9 @@ class ShipmentController extends Controller
                 'inventory_location_id' => $locationId,
                 'sku' => $stock->product->sku,
                 'item_name' => $stock->product->name,
-                'quantity' => $qty,
+                'quantity' => $wantedLine['quantity'],
                 'unit_weight_kg' => $wantedLine['unit_weight_kg'] ?? null,
+                'pickup' => $wantedLine['pickup'],
             ];
         }
 

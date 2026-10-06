@@ -19,6 +19,8 @@ class LocationController extends Controller
 {
     private const MAX_RESULTS = 8;
 
+    private const MAX_SUGGESTIONS = 4;
+
     public function search(Request $request)
     {
         $data = $request->validate([
@@ -56,6 +58,52 @@ class LocationController extends Controller
                 'postal_code' => $row['postal_code'],
             ])->all()
         );
+    }
+
+    /**
+     * Places named in a free-text address, best match first, for the shipment form to
+     * suggest or pre-fill the Location. "exact" marks the strongest matches found: when
+     * there is only one of those, the form can safely fill it in without asking.
+     */
+    public function detect(Request $request)
+    {
+        $data = $request->validate(['text' => ['required', 'string', 'max:255']]);
+        $text = ' '.$this->plain($data['text']).' ';
+
+        $matches = $this->allLocations()
+            ->map(function ($row) use ($text) {
+                $city = $this->plain($row['city']);
+                // 3: the city by its full name. 2: without "City" ("batangas" for Batangas City).
+                // 1: only its province is named, so it is one of several possibilities.
+                $score = match (true) {
+                    str_contains($text, " {$city} ") => 3,
+                    str_ends_with($city, ' city') && str_contains($text, ' '.substr($city, 0, -5).' ') => 2,
+                    str_contains($text, ' '.$this->plain($row['province']).' ') => 1,
+                    default => 0,
+                };
+
+                return $row + ['score' => $score];
+            })
+            ->filter(fn ($row) => $row['score'] > 0)
+            ->sortBy(fn ($row) => [-$row['score'], -strlen($row['city']), $row['city']])
+            ->values();
+
+        $best = $matches->max('score');
+
+        return response()->json(
+            $matches->take(self::MAX_SUGGESTIONS)->map(fn ($row) => [
+                'city' => $row['city'],
+                'province' => $row['province'],
+                'postal_code' => $row['postal_code'],
+                'exact' => $row['score'] >= 2 && $row['score'] === $best,
+            ])->all()
+        );
+    }
+
+    /** Lower-case, accents removed, punctuation turned into single spaces: "Las Piñas" => "las pinas". */
+    private function plain(string $value): string
+    {
+        return trim(preg_replace('/[^a-z0-9]+/', ' ', Str::lower(Str::ascii($value))));
     }
 
     /** @return Collection<int, array{city:string, province:string, postal_code:string}> */

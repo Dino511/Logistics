@@ -225,5 +225,29 @@
     "Opens the camera on a phone. Large photos are made smaller automatically before sending.": "Bubuksan ang camera sa phone. Awtomatikong pinaliliit ang malalaking litrato bago ipadala.",
     "Preparing photo…": "Inihahanda ang litrato…",
     "Photo ready to send": "Handa nang ipadala ang litrato",
-    "View photo larger": "Tingnan nang mas malaki ang litrato"
+    "View photo larger": "Tingnan nang mas malaki ang litrato",
+
+    "Pickup stops": "Mga pickup stop",
+    ":done of :total collected": ":done sa :total ang nakuha na",
+    "Collected": "Nakuha na",
+    "Collected :when": "Nakuha noong :when",
+    "Planned for :when": "Nakatakda sa :when",
+    "Mark collected": "Markahan bilang nakuha",
+    "Mark this pickup as collected? This cannot be undone.": "Markahan ang pickup na ito bilang nakuha? Hindi na ito mababawi.",
+    "Stops can be ticked off once the shipment is released: marked Ready for pickup, or dispatched.": "Mamamarkahan ang mga stop kapag nailabas na ang shipment: Handa nang kunin, o naipadala na.",
+    "+ :count more pickup stop|+ :count more pickup stops": "+ :count pang pickup stop|+ :count pang pickup stop",
+    "Next pickup: :place": "Susunod na pickup: :place",
+    "Directions to pickup": "Direksyon papunta sa pickup",
+    "This shipment has not been released for pickup yet.": "Hindi pa nailalabas ang shipment na ito para sa pickup.",
+    "This shipment is finished, so its pickups can no longer be changed.": "Tapos na ang shipment na ito, kaya hindi na mababago ang mga pickup nito.",
+    "That pickup was already collected.": "Nakuha na ang pickup na iyon.",
+    "All pickups collected.": "Nakuha na ang lahat ng pickup.",
+    "Pickup collected. :count more to collect.|Pickup collected. :count more to collect.": "Nakuha na ang pickup. :count pa ang kukunin.|Nakuha na ang pickup. :count pa ang kukunin.",
+    "Collect every pickup first: :count stop is still to be collected.|Collect every pickup first: :count stops are still to be collected.": "Kunin muna ang lahat ng pickup: :count stop pa ang hindi nakukuha.|Kunin muna ang lahat ng pickup: :count stop pa ang hindi nakukuha.",
+
+    "1 shipment is not delivered yet": "1 shipment ang hindi pa naihahatid",
+    ":count shipments are not delivered yet": ":count shipment ang hindi pa naihahatid",
+    "due :when": "dapat maihatid sa :when",
+    "Next due: :tracking, :when": "Susunod: :tracking, :when",
+    ":count overdue|:count overdue": ":count ang lampas na sa oras|:count ang lampas na sa oras"
 }

@@ -37,9 +37,10 @@ class CalendarController extends Controller
         $shipments = collect();
         if (! $isField || $user->driver) {
             $shipments = Shipment::query()
-                ->with(['driver', 'vehicle', 'allocations.vehicle', 'allocations.driver'])
+                ->with(['driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'pickups'])
                 ->where(fn ($q) => $q
                     ->whereBetween('scheduled_delivery_at', [$start, $end])
+                    ->orWhereHas('pickups', fn ($p) => $p->whereBetween('scheduled_at', [$start, $end]))
                     ->orWhereBetween('scheduled_pickup_at', [$start, $end])
                     ->orWhere(fn ($p) => $p->whereNull('scheduled_pickup_at')->whereBetween('dispatched_at', [$start, $end])))
                 ->when($isField, fn ($q) => $q->assignedToDriver($user->driver->id))
@@ -104,6 +105,22 @@ class CalendarController extends Controller
                     'city' => $s->origin_city,
                     'overdue' => false,
                 ];
+            }
+
+            // Later stops of a multi-pickup shipment, each on its own planned time.
+            foreach ($s->pickups->skip(1) as $stop) {
+                if ($stop->scheduled_at && $stop->scheduled_at->betweenIncluded($start, $end)) {
+                    $events[$stop->scheduled_at->toDateString()][] = [
+                        'type' => 'pickup',
+                        'label' => 'Pickup',
+                        'at' => $stop->scheduled_at,
+                        'shipment' => $s,
+                        'place' => $stop->name,
+                        'address' => $stop->address,
+                        'city' => $stop->city,
+                        'overdue' => false,
+                    ];
+                }
             }
 
             $deliveryAt = $s->scheduled_delivery_at;

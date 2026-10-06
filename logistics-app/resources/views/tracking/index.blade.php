@@ -64,12 +64,13 @@
           .addTo(layer)
           .bindTooltip('🚚 ' + esc(p.plate || p.driver || 'Vehicle'), { permanent: true, direction: 'right', offset: [10, 0] })
           .bindPopup('<a href="' + esc(p.url) + '"><strong>' + esc(p.tracking_number) + '</strong></a><br>'
-            + esc(p.driver) + (p.plate ? ' · ' + esc(p.plate) : '') + '<br>To ' + esc(p.destination) + '<br>' + esc(p.status) + ' · ' + esc(p.ago));
+            + esc(p.driver) + (p.plate ? ' · ' + esc(p.plate) : '') + '<br>To ' + esc(p.destination) + '<br>' + esc(p.status) + ' · ' + esc(p.ago)
+            + (p.pickups ? '<br>' + esc(p.pickups) : ''));
       });
       rows.innerHTML = positions.map((p) => '<tr>'
         + '<td>' + esc(p.plate || '—') + '</td><td>' + esc(p.driver) + (p.tel ? '<br><a class="track" href="' + esc(p.tel) + '">📞 ' + esc(p.phone) + '</a>' : '') + '</td>'
         + '<td><a class="track" href="' + esc(p.url) + '">' + esc(p.tracking_number) + '</a></td>'
-        + '<td>' + esc(p.destination) + '</td><td>' + esc(p.status) + '</td>'
+        + '<td>' + esc(p.destination) + '</td><td>' + esc(p.status) + (p.pickups ? '<br><small style="color:var(--muted)">' + esc(p.pickups) + '</small>' : '') + '</td>'
         + '<td><span class="badge ' + (p.live ? 'b-delivered' : 'b-pending') + '">' + esc(p.ago) + '</span></td></tr>').join('');
       if (!fittedOnce) { map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 }); fittedOnce = true; }
     }

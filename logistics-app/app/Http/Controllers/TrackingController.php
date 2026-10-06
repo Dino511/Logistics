@@ -105,13 +105,20 @@ class TrackingController extends Controller
         return VehicleLocationPing::query()
             ->whereIn('id', self::latestPingIds())
             ->whereHas('shipment', fn ($q) => $q->whereIn('status', self::TRACKABLE_STATUSES))
-            ->with(['driver', 'vehicle', 'shipment'])
+            ->with(['driver', 'vehicle', 'shipment.pickups'])
             ->orderByDesc('recorded_at')
             ->get()
             ->map(fn (VehicleLocationPing $p) => $p->toMapPoint() + [
                 'tracking_number' => $p->shipment->tracking_number,
                 'destination' => $p->shipment->destination_name.', '.$p->shipment->destination_city,
                 'status' => $p->shipment->statusLabel(),
+                // Multi-pickup shipments: how far along the stops are, and where the truck heads next.
+                'pickups' => $p->shipment->pickups->isEmpty() ? null : sprintf(
+                    '%d of %d pickups collected%s',
+                    $p->shipment->pickups->filter->isCollected()->count(),
+                    $p->shipment->pickups->count(),
+                    ($next = $p->shipment->nextPickup()) ? " · next: {$next->sequence} · {$next->name}" : ''
+                ),
                 'url' => route('shipments.show', $p->shipment),
             ])
             ->all();

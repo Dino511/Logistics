@@ -236,4 +236,107 @@ class FieldDeliveryTest extends TestCase
         }
         $this->assertSame('Returned to sender', Shipment::label('returned'));
     }
+
+    /** A shipment with two pickup stops, assigned to this test's driver. */
+    private function multiPickup(string $status): Shipment
+    {
+        $s = $this->shipment($status);
+        foreach (['Main Store', 'Supplier A'] as $i => $name) {
+            $s->pickups()->create(['sequence' => $i + 1, 'name' => $name, 'address' => 'Somewhere', 'city' => 'Manila']);
+        }
+
+        return $s;
+    }
+
+    public function test_ticking_off_every_pickup_moves_a_ready_shipment_to_picked_up(): void
+    {
+        $s = $this->multiPickup('ready_for_pickup');
+        [$first, $second] = $s->pickups;
+
+        // "Picked up" can't be claimed while stops are still to be collected.
+        $this->update($s, ['status' => 'picked_up'])->assertSessionHasErrors('status');
+
+        $this->actingAs($this->field)->post("/shipments/{$s->shipment_id}/pickups/{$first->id}/collect")->assertRedirect();
+        $this->assertSame('ready_for_pickup', $s->refresh()->status);
+        $this->assertNotNull($first->refresh()->picked_up_at);
+        $this->assertSame($this->field->id, (int) $first->picked_up_by);
+
+        $this->actingAs($this->field)->post("/shipments/{$s->shipment_id}/pickups/{$second->id}/collect")->assertRedirect();
+        $this->assertSame('picked_up', $s->refresh()->status);
+        $this->assertDatabaseHas('shipment_status_history', ['shipment_id' => $s->shipment_id, 'note' => 'Collected pickup 2 of 2: Supplier A']);
+        $this->assertDatabaseHas('shipment_status_history', ['shipment_id' => $s->shipment_id, 'status' => 'picked_up', 'note' => 'All pickups collected.']);
+    }
+
+    public function test_a_delivery_cannot_be_finished_with_a_pickup_still_to_collect(): void
+    {
+        $s = $this->multiPickup('in_transit');
+        $s->pickups[0]->update(['picked_up_at' => now()]);
+
+        $this->update($s, [
+            'status' => 'delivered', 'received_by' => 'Ana Reyes',
+            'proof_photo' => UploadedFile::fake()->image('pod.jpg', 800, 600),
+        ])->assertSessionHasErrors('status');
+        $this->assertSame('in_transit', $s->refresh()->status);
+
+        $this->actingAs($this->field)->post("/shipments/{$s->shipment_id}/pickups/{$s->pickups[1]->id}/collect");
+        $this->assertSame('in_transit', $s->refresh()->status, 'already past Picked up, so the status is left alone');
+
+        $this->update($s, [
+            'status' => 'delivered', 'received_by' => 'Ana Reyes',
+            'proof_photo' => UploadedFile::fake()->image('pod.jpg', 800, 600),
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('delivered', $s->refresh()->status);
+    }
+
+    public function test_pickups_can_only_be_ticked_by_the_assigned_driver_or_the_office_once_released(): void
+    {
+        $pending = $this->multiPickup('pending');
+        $this->actingAs($this->field)->post("/shipments/{$pending->shipment_id}/pickups/{$pending->pickups[0]->id}/collect")->assertSessionHas('error');
+        $this->assertNull($pending->pickups[0]->refresh()->picked_up_at);
+
+        $s = $this->multiPickup('ready_for_pickup');
+        $stranger = $this->user(Role::FieldPersonnel);
+        $this->actingAs($stranger)->post("/shipments/{$s->shipment_id}/pickups/{$s->pickups[0]->id}/collect")->assertForbidden();
+
+        // A stop belonging to a different shipment is not found under this one.
+        $this->actingAs($this->field)->post("/shipments/{$s->shipment_id}/pickups/{$pending->pickups[0]->id}/collect")->assertNotFound();
+
+        $this->actingAs($this->user(Role::LogisticsCoordinator))->post("/shipments/{$s->shipment_id}/pickups/{$s->pickups[0]->id}/collect")->assertRedirect();
+        $this->assertNotNull($s->pickups[0]->refresh()->picked_up_at);
+    }
+
+    public function test_a_reminder_stays_on_every_page_until_the_delivery_is_finished(): void
+    {
+        $s = $this->shipment('out_for_delivery');
+        $office = $this->user(Role::LogisticsCoordinator);
+
+        // Shown to the office and to the assigned driver, on pages that have nothing to do with shipments.
+        $this->actingAs($office)->get('/emergency-contacts')->assertForbidden();
+        $this->actingAs($this->user(Role::Manager))->get('/emergency-contacts')->assertOk()
+            ->assertSee('1 shipment is not delivered yet')->assertSee($s->tracking_number)
+            ->assertSee("/shipments/{$s->shipment_id}", false);
+        $this->actingAs($this->field)->get('/shipments')->assertOk()->assertSee('1 shipment is not delivered yet');
+
+        // Another driver has nothing of their own outstanding.
+        $this->actingAs($this->user(Role::FieldPersonnel))->get('/shipments')->assertOk()->assertDontSee('is not delivered yet');
+
+        // A second one switches to a count, linking to the filtered list.
+        $this->shipment('pending');
+        $this->actingAs($office)->get('/shipments?status=open')->assertOk()
+            ->assertSee('2 shipments are not delivered yet')->assertSee('status=open', false);
+
+        // Finished: Delivered, Returned or Cancelled all end the reminder.
+        Shipment::query()->update(['status' => 'delivered']);
+        $this->actingAs($office)->get('/shipments')->assertOk()->assertDontSee('not delivered yet</strong>', false);
+    }
+
+    public function test_the_list_can_be_filtered_to_unfinished_shipments(): void
+    {
+        $open = $this->shipment('delayed');
+        $done = $this->shipment('delivered');
+
+        $this->actingAs($this->user(Role::Manager))->get('/shipments?status=open')->assertOk()
+            ->assertSee("/shipments/{$open->shipment_id}\"", false)
+            ->assertDontSee("/shipments/{$done->shipment_id}\"", false);
+    }
 }

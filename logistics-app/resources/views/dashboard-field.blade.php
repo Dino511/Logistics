@@ -14,12 +14,14 @@
   $isOverdue = $next && $next->scheduled_delivery_at->isPast();
   $canShare = $next && in_array($next->status, \App\Http\Controllers\TrackingController::TRACKABLE_STATUSES, true);
   $canUpdate = $next && count($next->fieldNextStatuses());
+  // With several pickups, the driver heads for the next stop still to be collected.
+  $nextStop = $next?->nextPickup();
   // Turn-by-turn directions in the phone's maps app: the pinned spot if there is one, else the address.
-  $mapsTo = $next
+  $mapsTo = $nextStop ? $nextStop->mapsQuery() : ($next
     ? ($next->destination_latitude && $next->destination_longitude
         ? $next->destination_latitude.','.$next->destination_longitude
         : collect([$next->destination_address, $next->destination_city, $next->destination_province])->filter()->implode(', '))
-    : null;
+    : null);
 @endphp
 
 @push('head')
@@ -64,6 +66,7 @@
   .fd-line { width:clamp(28px, 6vw, 90px); height:2px; background:repeating-linear-gradient(to right, var(--border) 0 6px, transparent 6px 11px); }
   .fd-due { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; font-size:.95rem; font-weight:600; }
   .fd-due small { font-weight:400; color:var(--muted); font-size:.88rem; }
+  .fd-stops { display:block; margin-top:10px; padding:10px 12px; border-radius:10px; background:var(--hover); color:var(--text); text-decoration:none; font-size:.9rem; }
 
   .fd-steps { display:grid; grid-template-columns:repeat(5, 1fr); margin:20px 0 4px; padding:0; list-style:none; }
   .fd-steps li { position:relative; text-align:center; font-size:.72rem; color:var(--muted); padding-top:20px; line-height:1.25; }
@@ -198,6 +201,13 @@
             <small>({{ $next->scheduled_delivery_at->diffForHumans() }})</small>
           </div>
 
+          @if ($next->pickups->isNotEmpty())
+            <a class="fd-stops" href="{{ route('shipments.show', $next) }}#pickups">
+              <strong>{{ __(':done of :total collected', ['done' => $next->pickups->filter->isCollected()->count(), 'total' => $next->pickups->count()]) }}</strong>
+              @if ($nextStop) · {{ __('Next pickup: :place', ['place' => $nextStop->sequence.' · '.$nextStop->name]) }} @endif
+            </a>
+          @endif
+
           <ol class="fd-steps" aria-label="{{ __('Status') }}: {{ __($next->statusLabel()) }}">
             @foreach ($journey as $i => $step)
               @php $at = $stepOf[$next->status] ?? -1; @endphp
@@ -213,7 +223,7 @@
             @if ($mapsTo)
               <a class="btn" href="https://www.google.com/maps/dir/?api=1&destination={{ urlencode($mapsTo) }}" target="_blank" rel="noopener">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-                {{ __('Directions') }}
+                {{ $nextStop ? __('Directions to pickup') : __('Directions') }}
               </a>
             @endif
           </div>

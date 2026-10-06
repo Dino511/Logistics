@@ -9,7 +9,62 @@
   .field label { display:block; font-size:.82rem; font-weight:600; margin-bottom:5px; }
   .field input, .field select, .field textarea { width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text); font:inherit; font-size:.92rem; }
   .field input:focus, .field select:focus, .field textarea:focus { outline:2px solid var(--primary); outline-offset:1px; }
-  .section-title { margin:22px 0 12px; font-size:1rem; }
+  /* Page layout: the form's steps on the left, a summary that stays in view on the right. */
+  .sf { display:grid; gap:20px; grid-template-columns:minmax(0,1fr); align-items:start; }
+  @media (min-width:1150px) { .sf { grid-template-columns:minmax(0,1fr) 320px; } .sf-summary { position:sticky; top:16px; } }
+  .sf-main { display:grid; gap:20px; min-width:0; }
+  .sf-step-head { display:flex; gap:12px; align-items:flex-start; margin-bottom:18px; }
+  .sf-step-head h2 { margin:0 0 2px; font-size:1.08rem; }
+  .sf-step-head p { margin:0; color:var(--muted); font-size:.85rem; }
+  .sf-step-no { flex-shrink:0; width:30px; height:30px; display:grid; place-items:center; border-radius:50%; background:var(--primary); color:#fff; font-weight:700; font-size:.9rem; }
+  .sf-problems { border-color:#d13438; }
+  .sf-problems .errors { margin:8px 0 0; }
+
+  /* Name is short, address is long: give the address the room. */
+  .sf-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr); gap:14px; }
+  .sf-fields .full, .sf-fields .loc-block { grid-column:1 / -1; }
+  .sf-fields.four { grid-template-columns:repeat(4, minmax(0,1fr)); }
+  @media (max-width:900px) { .sf-fields.four { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  @media (max-width:640px) { .sf-fields, .sf-fields.four { grid-template-columns:minmax(0,1fr); } }
+  .field label .optional { font-weight:400; color:var(--muted); font-size:.75rem; margin-left:4px; }
+  /* A red star on anything that must be filled in. */
+  .sf .field:not(.loc-block):has(:required) > label::after,
+  .sf .loc-block:has(:required) .loc-label-row label::after { content:' *'; color:#d13438; }
+  .field textarea { resize:vertical; }
+
+  .sf-stop { margin:0 0 16px; padding:16px; border:1px solid var(--border); border-radius:12px; min-width:0; }
+  .sf-stop-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .sf-stop-head h3 { margin:0; font-size:.98rem; flex:1; }
+  .sf-stop-badge { padding:3px 10px; border-radius:99px; background:color-mix(in srgb, var(--primary) 14%, var(--card)); color:var(--primary); font-size:.75rem; font-weight:700; white-space:nowrap; }
+
+  .sf-summary h2 { margin:0 0 14px; font-size:1rem; }
+  .sf-route { list-style:none; margin:0 0 14px; padding:0; }
+  .sf-route li { position:relative; padding:0 0 12px 26px; font-size:.9rem; line-height:1.3; overflow-wrap:anywhere; }
+  .sf-route li::before { content:''; position:absolute; left:5px; top:4px; width:10px; height:10px; border-radius:50%; border:2px solid var(--primary); background:var(--card); box-sizing:border-box; }
+  .sf-route li::after { content:''; position:absolute; left:9px; top:16px; bottom:-2px; width:2px; background:var(--border); }
+  .sf-route li:last-child { padding-bottom:0; }
+  .sf-route li:last-child::before { background:var(--primary); }
+  .sf-route li:last-child::after { display:none; }
+  .sf-route small { display:block; color:var(--muted); font-size:.78rem; }
+  .sf-route .unset { color:var(--muted); font-style:italic; }
+  .sf-facts { margin:0 0 14px; padding-top:12px; border-top:1px solid var(--border); display:grid; gap:8px; }
+  .sf-facts div { display:flex; justify-content:space-between; gap:12px; font-size:.86rem; }
+  .sf-facts dt { color:var(--muted); flex-shrink:0; }
+  .sf-facts dd { margin:0; text-align:right; font-weight:600; overflow-wrap:anywhere; }
+  .sf-todo { margin:0 0 10px; font-size:.82rem; color:var(--muted); }
+  .sf-todo.ready { color:#1a8a4a; font-weight:600; }
+  .sf-todo button { background:none; border:0; padding:0; color:var(--primary); font:inherit; cursor:pointer; text-decoration:underline; }
+  .sf-submit, .sf-cancel { display:block; width:100%; text-align:center; padding:11px 16px; }
+  .sf-cancel { margin-top:8px; }
+  .sf-foot { margin:12px 0 0; font-size:.75rem; color:var(--muted); line-height:1.45; }
+  .pickup-add-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0; }
+  .pickup-add-row .hint { color:var(--muted); font-size:.78rem; }
+  .pickup-items-wrap { margin-top:14px; padding:14px; border-radius:10px; background:var(--hover); }
+  .items-title { margin:0 0 10px; font-size:.82rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .items-foot { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+  .items-note { color:var(--muted); font-size:.78rem; }
+  .items-empty { margin:0; color:#d13438; font-size:.88rem; line-height:1.5; }
+  [data-theme="dark"] .items-empty { color:#ff6b6f; }
   /* One item = a 2-row grid. Row 1: product | quantity | remove (controls share one height and baseline).
      Row 2: the "available" hint, tucked under the product select only. */
   .line { display:grid; grid-template-columns:minmax(0,1fr) 110px 130px 40px; column-gap:10px; row-gap:4px; align-items:end; margin-bottom:14px; }
@@ -19,10 +74,15 @@
   .line .avail { grid-column:1; min-height:1em; font-size:.75rem; color:var(--muted); }
   .errors { color:#d13438; font-size:.85rem; margin:0 0 14px; padding-left:18px; }
   [data-theme="dark"] .errors { color:#ff6b6f; }
-  .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
   a.btn { text-decoration:none; display:inline-block; }
-  @media (max-width:560px) { .line { grid-template-columns:minmax(0,1fr) 84px 110px 40px; } }
-  #addLine { margin-top:2px; }
+  /* Phones: the product gets a full row; quantity, weight and remove share the next one. */
+  @media (max-width:640px) {
+    .line { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px; }
+    .line .field:first-child { grid-column:1 / -1; }
+    .line .avail { grid-row:2; grid-column:1 / -1; }
+    .sf-stop { padding:12px; }
+    .pickup-items-wrap { padding:12px; }
+  }
 
   /* Location search: one smart field that resolves to City/Province/Postal behind the
      scenes, with a manual fallback for anything not in the dataset. Nothing here ever
@@ -44,6 +104,9 @@
   .loc-clear:hover { background:var(--hover, rgba(120,120,120,.14)); color:var(--text); }
   .loc-hint { display:block; margin-top:6px; color:var(--muted); font-size:.78rem; }
   .loc-block.loc-invalid .loc-hint { color:#d13438; }
+  .loc-suggest { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin-top:8px; font-size:.82rem; color:var(--muted); }
+  .loc-suggest[hidden] { display:none; }
+  .loc-suggest .btn { white-space:nowrap; }
   .loc-kbd-hint { padding:6px 10px 2px; color:var(--muted); font-size:.72rem; border-top:1px solid var(--border); margin-top:4px; cursor:default; }
   .loc-spinner { flex:0 0 auto; width:14px; height:14px; margin-right:11px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:loc-spin .6s linear infinite; }
   @keyframes loc-spin { to { transform:rotate(360deg); } }
@@ -80,81 +143,169 @@
 @endpush
 
 @section('content')
-  <form class="card" method="POST" action="{{ route('shipments.store') }}" id="shipmentForm">
+  <form class="sf" method="POST" action="{{ route('shipments.store') }}" id="shipmentForm">
     @csrf
 
-    @if ($errors->any())
-      <ul class="errors">@foreach ($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
-    @endif
+    @php
+      // Schedule problems are shown next to the schedule fields, everything else up here.
+      $scheduleErrors = collect($errors->get('scheduled_pickup_at'))->merge($errors->get('scheduled_delivery_at'));
+      $otherErrors = collect($errors->all())->diff($scheduleErrors);
+      $canCreate = ! $inventoryDown && count($stockOptions);
+    @endphp
 
-    <h2 class="section-title" style="margin-top:0">Origin</h2>
-    <div class="form-grid">
-      <div class="field"><label for="origin_name">Name / warehouse</label>
-        <div style="position:relative">
-          <input id="origin_name" name="origin_name" value="{{ old('origin_name') }}" required autocomplete="off"
-                 placeholder="Pick from Inventory or type a name" role="combobox" aria-controls="origin_name_list" aria-expanded="false">
-          <ul class="combo-list" id="origin_name_list" role="listbox" hidden></ul>
+    <div class="sf-main">
+      @if ($otherErrors->isNotEmpty())
+        <div class="card sf-problems" role="alert">
+          <strong>Please fix the following before saving:</strong>
+          <ul class="errors">@foreach ($otherErrors as $e)<li>{{ $e }}</li>@endforeach</ul>
         </div>
-        <input type="hidden" id="origin_latitude" name="origin_latitude" value="{{ old('origin_latitude') }}">
-        <input type="hidden" id="origin_longitude" name="origin_longitude" value="{{ old('origin_longitude') }}">
-      </div>
-      <div class="field"><label for="origin_address">Address</label><input id="origin_address" name="origin_address" value="{{ old('origin_address') }}" required></div>
-      @include('shipments._location-block', ['prefix' => 'origin'])
-    </div>
+      @endif
 
-    <h2 class="section-title">Destination</h2>
-    <div class="form-grid">
-      <div class="field"><label for="destination_name">Recipient / store</label>
-        <div style="position:relative">
-          <input id="destination_name" name="destination_name" value="{{ old('destination_name') }}" required autocomplete="off"
-                 placeholder="Pick from Inventory or type a name" role="combobox" aria-controls="destination_name_list" aria-expanded="false">
-          <ul class="combo-list" id="destination_name_list" role="listbox" hidden></ul>
+      {{-- 1. Where the goods are collected, and what is collected at each place. --}}
+      <section class="card sf-step">
+        <div class="sf-step-head">
+          <span class="sf-step-no" aria-hidden="true">1</span>
+          <div><h2>Pickup</h2><p>Where the goods are collected, and what to collect at each place.</p></div>
         </div>
-        <input type="hidden" id="destination_latitude" name="destination_latitude" value="{{ old('destination_latitude') }}">
-        <input type="hidden" id="destination_longitude" name="destination_longitude" value="{{ old('destination_longitude') }}">
+
+        <div class="sf-stop">
+          <div class="sf-stop-head"><span class="sf-stop-badge">Stop 1</span><h3>Origin</h3></div>
+          <div class="sf-fields">
+            <div class="field"><label for="origin_name">Name / warehouse</label>
+              <div style="position:relative">
+                <input id="origin_name" name="origin_name" value="{{ old('origin_name') }}" required autocomplete="off"
+                       placeholder="Pick from Inventory or type a name" role="combobox" aria-controls="origin_name_list" aria-expanded="false">
+                <ul class="combo-list" id="origin_name_list" role="listbox" hidden></ul>
+              </div>
+              <input type="hidden" id="origin_latitude" name="origin_latitude" value="{{ old('origin_latitude') }}">
+              <input type="hidden" id="origin_longitude" name="origin_longitude" value="{{ old('origin_longitude') }}">
+            </div>
+            <div class="field"><label for="origin_address">Address</label>
+              <input id="origin_address" name="origin_address" value="{{ old('origin_address') }}" required placeholder="Street, building, barangay, city"></div>
+            @include('shipments._location-block', ['prefix' => 'origin'])
+          </div>
+          @include('shipments._pickup-items', ['n' => 1, 'nameInput' => 'origin_name'])
+        </div>
+
+        {{-- More places to collect from on the same trip, visited in this order after the origin. --}}
+        <div id="extra-pickups">
+          @foreach (range(2, \App\Models\Shipment::MAX_PICKUPS) as $n)
+            @php
+              $p = "pickup{$n}";
+              $used = filled(old("{$p}_name")) || filled(old("{$p}_address")) || filled(old("{$p}_city"));
+            @endphp
+            <fieldset class="pickup-extra sf-stop" @unless ($used) hidden disabled @endunless>
+              <div class="sf-stop-head">
+                <span class="sf-stop-badge">Stop <span class="pickup-no">{{ $n }}</span></span>
+                <h3>Extra pickup</h3>
+                <button type="button" class="btn sm pickup-remove">Remove</button>
+              </div>
+              <div class="sf-fields">
+                <div class="field"><label for="{{ $p }}_name">Name / warehouse</label>
+                  <div style="position:relative">
+                    <input id="{{ $p }}_name" name="{{ $p }}_name" value="{{ old("{$p}_name") }}" required maxlength="150" autocomplete="off"
+                           placeholder="Pick from Inventory or type a name" role="combobox" aria-controls="{{ $p }}_name_list" aria-expanded="false">
+                    <ul class="combo-list" id="{{ $p }}_name_list" role="listbox" hidden></ul>
+                  </div>
+                  <input type="hidden" id="{{ $p }}_latitude" name="{{ $p }}_latitude" value="{{ old("{$p}_latitude") }}">
+                  <input type="hidden" id="{{ $p }}_longitude" name="{{ $p }}_longitude" value="{{ old("{$p}_longitude") }}">
+                </div>
+                <div class="field"><label for="{{ $p }}_address">Address</label>
+                  <input id="{{ $p }}_address" name="{{ $p }}_address" value="{{ old("{$p}_address") }}" required maxlength="255" placeholder="Street, building, barangay, city"></div>
+                @include('shipments._location-block', ['prefix' => $p])
+                <div class="field"><label for="{{ $p }}_scheduled_at">Pickup time <span class="optional">optional</span></label>
+                  <input type="datetime-local" id="{{ $p }}_scheduled_at" name="{{ $p }}_scheduled_at" value="{{ old("{$p}_scheduled_at") }}"
+                         min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
+              </div>
+              @include('shipments._pickup-items', ['n' => $n, 'nameInput' => "{$p}_name"])
+            </fieldset>
+          @endforeach
+        </div>
+        <p class="pickup-add-row">
+          <button type="button" class="btn" id="pickup-add">+ Add another pickup</button>
+          <small class="hint">For a trip that collects from more than one place. Up to {{ \App\Models\Shipment::MAX_PICKUPS }} stops, the origin included.</small>
+        </p>
+      </section>
+
+      {{-- 2. Where it is going. --}}
+      <section class="card sf-step">
+        <div class="sf-step-head">
+          <span class="sf-step-no" aria-hidden="true">2</span>
+          <div><h2>Destination</h2><p>Who receives the delivery, and where.</p></div>
+        </div>
+        <div class="sf-fields">
+          <div class="field"><label for="destination_name">Recipient / store</label>
+            <div style="position:relative">
+              <input id="destination_name" name="destination_name" value="{{ old('destination_name') }}" required autocomplete="off"
+                     placeholder="Pick from Inventory or type a name" role="combobox" aria-controls="destination_name_list" aria-expanded="false">
+              <ul class="combo-list" id="destination_name_list" role="listbox" hidden></ul>
+            </div>
+            <input type="hidden" id="destination_latitude" name="destination_latitude" value="{{ old('destination_latitude') }}">
+            <input type="hidden" id="destination_longitude" name="destination_longitude" value="{{ old('destination_longitude') }}">
+          </div>
+          <div class="field"><label for="destination_address">Address</label>
+            <input id="destination_address" name="destination_address" value="{{ old('destination_address') }}" required placeholder="Street, building, barangay, city"></div>
+          @include('shipments._location-block', ['prefix' => 'destination'])
+        </div>
+      </section>
+
+      {{-- 3. When, and who takes it. --}}
+      <section class="card sf-step">
+        <div class="sf-step-head">
+          <span class="sf-step-no" aria-hidden="true">3</span>
+          <div><h2>Schedule &amp; assignment</h2><p>When it is collected and delivered, and who takes it. Driver and vehicle can be set later.</p></div>
+        </div>
+        @if ($scheduleErrors->isNotEmpty())
+          <ul class="errors" id="schedule-errors" role="alert">@foreach ($scheduleErrors as $e)<li>{{ $e }}</li>@endforeach</ul>
+        @endif
+        <div class="sf-fields four">
+          <div class="field"><label for="scheduled_pickup_at">Scheduled pickup</label>
+            <input type="datetime-local" id="scheduled_pickup_at" name="scheduled_pickup_at" value="{{ old('scheduled_pickup_at') }}" required
+                   min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
+          <div class="field"><label for="scheduled_delivery_at">Scheduled delivery</label>
+            <input type="datetime-local" id="scheduled_delivery_at" name="scheduled_delivery_at" value="{{ old('scheduled_delivery_at') }}" required
+                   min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
+          @if ($drivers->count())
+            <div class="field"><label for="driver_id">Driver <span class="optional">optional</span></label>
+              <select id="driver_id" name="driver_id"><option value="">Unassigned</option>
+                @foreach ($drivers as $d)<option value="{{ $d->id }}" @selected(old('driver_id') == $d->id)>{{ $d->name }}</option>@endforeach
+              </select></div>
+          @endif
+          @if ($vehicles->count())
+            <div class="field"><label for="vehicle_id">Vehicle <span class="optional">optional</span></label>
+              <select id="vehicle_id" name="vehicle_id"><option value="">Unassigned</option>
+                @foreach ($vehicles as $v)<option value="{{ $v->id }}" @selected(old('vehicle_id') == $v->id)>{{ $v->plate_number }}</option>@endforeach
+              </select></div>
+          @endif
+          <div class="field full"><label for="notes">Instructions for the driver <span class="optional">optional</span></label>
+            <textarea id="notes" name="notes" rows="2" maxlength="1000" placeholder="e.g. call the receiver before arriving, fragile, gate code…">{{ old('notes') }}</textarea></div>
+        </div>
+      </section>
+    </div>
+
+    {{-- Not <aside>: the layout styles every aside as the navigation sidebar. --}}
+    <div class="sf-side">
+      <div class="card sf-summary" aria-label="Shipment summary">
+        <h2>Summary</h2>
+        <ol class="sf-route" id="sumRoute"></ol>
+        <dl class="sf-facts">
+          <div><dt>Pickup</dt><dd id="sumPickup">—</dd></div>
+          <div><dt>Delivery</dt><dd id="sumDelivery">—</dd></div>
+          <div><dt>Items</dt><dd id="sumItems">—</dd></div>
+          <div><dt>Driver</dt><dd id="sumDriver">Unassigned</dd></div>
+          <div><dt>Vehicle</dt><dd id="sumVehicle">Unassigned</dd></div>
+        </dl>
+
+        <p class="sf-todo" id="sumTodo" aria-live="polite"></p>
+        <button type="submit" class="btn primary sf-submit" @disabled(! $canCreate)>Create shipment</button>
+        <a class="btn sf-cancel" href="{{ route('shipments.index') }}">Cancel</a>
+
+        @if ($canCreate)
+          <p class="sf-foot">Stock is checked when you save. Shipments don't reduce inventory quantities. Unit weight is only needed for automatic multi-vehicle dispatch.</p>
+        @else
+          <p class="sf-foot">A shipment needs at least one item, so it can't be created until there is free stock.</p>
+        @endif
       </div>
-      <div class="field"><label for="destination_address">Address</label><input id="destination_address" name="destination_address" value="{{ old('destination_address') }}" required></div>
-      @include('shipments._location-block', ['prefix' => 'destination'])
-    </div>
-
-    <h2 class="section-title">Schedule &amp; assignment</h2>
-    <div class="form-grid">
-      <div class="field"><label for="scheduled_pickup_at">Scheduled pickup (optional)</label>
-        <input type="datetime-local" id="scheduled_pickup_at" name="scheduled_pickup_at" value="{{ old('scheduled_pickup_at') }}"
-               min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
-      <div class="field"><label for="scheduled_delivery_at">Scheduled delivery</label>
-        <input type="datetime-local" id="scheduled_delivery_at" name="scheduled_delivery_at" value="{{ old('scheduled_delivery_at') }}" required
-               min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
-      @if ($drivers->count())
-        <div class="field"><label for="driver_id">Driver</label>
-          <select id="driver_id" name="driver_id"><option value="">Unassigned</option>
-            @foreach ($drivers as $d)<option value="{{ $d->id }}" @selected(old('driver_id') == $d->id)>{{ $d->name }}</option>@endforeach
-          </select></div>
-      @endif
-      @if ($vehicles->count())
-        <div class="field"><label for="vehicle_id">Vehicle</label>
-          <select id="vehicle_id" name="vehicle_id"><option value="">Unassigned</option>
-            @foreach ($vehicles as $v)<option value="{{ $v->id }}" @selected(old('vehicle_id') == $v->id)>{{ $v->plate_number }}</option>@endforeach
-          </select></div>
-      @endif
-      <div class="field full"><label for="notes">Notes</label><textarea id="notes" name="notes" rows="2">{{ old('notes') }}</textarea></div>
-    </div>
-
-    <h2 class="section-title">Items from inventory</h2>
-    @if ($inventoryDown)
-      <p class="errors">The inventory system can't be reached right now, so items can't be added. Try again shortly.</p>
-    @elseif (! count($stockOptions))
-      <p class="errors">No products with stock were found in inventory.</p>
-    @else
-      <div id="lines"></div>
-      <button type="button" class="btn sm" id="addLine">+ Add item</button>
-      <p style="color:var(--muted);font-size:.8rem;margin:10px 0 0">Stock is checked when you save. Shipments don't reduce inventory quantities.
-        Unit weight is optional and only needed if you plan to use automatic multi-vehicle dispatch for this shipment.</p>
-    @endif
-
-    <div class="actions">
-      <a class="btn" href="{{ route('shipments.index') }}">Cancel</a>
-      <button type="submit" class="btn primary" @disabled($inventoryDown || ! count($stockOptions))>Create shipment</button>
     </div>
   </form>
 @endsection
@@ -169,7 +320,7 @@
 
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-    ['origin', 'destination'].forEach((prefix) => {
+    ['origin', 'destination', ...@json(array_map(fn ($n) => "pickup{$n}", range(2, \App\Models\Shipment::MAX_PICKUPS)))].forEach((prefix) => {
       const input = document.getElementById(prefix + '_name');
       const list = document.getElementById(prefix + '_name_list');
       const address = document.getElementById(prefix + '_address');
@@ -219,6 +370,7 @@
         if (address && p.address) address.value = p.address;
         lat.value = p.lat ?? '';
         lng.value = p.lng ?? '';
+        input.dispatchEvent(new CustomEvent('place:chosen'));
         if (p.city) {
           document.getElementById(prefix + '_loc_block')?.dispatchEvent(new CustomEvent('loc:set', {
             detail: { city: p.city, province: p.province || '', postal_code: p.postal_code || '' },
@@ -245,38 +397,102 @@
     });
   })();
 
+  // Items are chosen per pickup stop. Each stop's list offers the stock held at that
+  // stop when its name is an Inventory location, and all stock otherwise.
   const stock = @json($stockOptions);
-  const previous = @json(old('items', []));
-  const linesEl = document.getElementById('lines');
+  const stockPlaces = @json($placeOptions);
+  const previous = Object.values(@json(old('items', [])));
+  const itemLists = [...document.querySelectorAll('.pickup-items')];
+  const escOpt = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  let lineSerial = 0;
 
-  function addLine(key = '', qty = 1, weight = '') {
-    if (!linesEl) return;
-    const i = linesEl.children.length + Date.now(); // unique index per row
-    const row = document.createElement('div');
-    row.className = 'line';
-    const options = stock.map(s => `<option value="${s.key}" data-avail="${s.available}" ${s.key === key ? 'selected' : ''}>${s.label.replace(/</g, '&lt;')}</option>`).join('');
-    row.innerHTML = `
-      <div class="field"><label>Product · source location</label>
-        <select name="items[${i}][key]" required><option value="">Select…</option>${options}</select></div>
-      <div class="field"><label>Quantity</label><input type="number" min="1" name="items[${i}][quantity]" value="${qty}" required></div>
-      <div class="field"><label>Unit weight (kg)</label><input type="number" min="0" step="0.01" name="items[${i}][unit_weight_kg]" value="${weight}" placeholder="optional"></div>
-      <button type="button" class="btn remove" aria-label="Remove item">✕</button>
-      <div class="avail"></div>`;
-    const select = row.querySelector('select'), input = row.querySelector('input'), avail = row.querySelector('.avail');
-    const refresh = () => {
-      const max = select.selectedOptions[0]?.dataset.avail;
-      avail.textContent = max ? `${max} available` : '';
-      if (max) input.max = max; else input.removeAttribute('max');
-    };
-    select.addEventListener('change', refresh);
-    row.querySelector('button').addEventListener('click', () => { if (linesEl.children.length > 1) row.remove(); });
-    linesEl.appendChild(row);
-    refresh();
-  }
+  const pickupItems = {
+    list: (n) => itemLists.find((l) => Number(l.dataset.pickup) === Number(n)),
 
-  document.getElementById('addLine')?.addEventListener('click', () => addLine());
-  const restored = Object.values(previous);
-  if (restored.length) restored.forEach(l => addLine(l.key, l.quantity, l.unit_weight_kg ?? '')); else addLine();
+    // The Inventory location this stop is, going by its name; null for anywhere else.
+    placeOf(list) {
+      const name = document.getElementById(list.dataset.nameInput).value.trim().toLowerCase();
+      return (name && stockPlaces.find((p) => p.type === 'Location' && p.name.toLowerCase() === name)) || null;
+    },
+
+    fill(row, list) {
+      const select = row.querySelector('select');
+      const chosen = select.value || row.dataset.key || '';
+      const place = this.placeOf(list);
+      const here = place ? stock.filter((s) => s.location_id === place.location_id) : [];
+      let shown = here.length ? here : stock;
+      // A line already chosen stays selectable even when it is stock from somewhere else.
+      if (chosen && !shown.some((s) => s.key === chosen)) shown = shown.concat(stock.filter((s) => s.key === chosen));
+      select.innerHTML = '<option value="">Select…</option>' + shown.map((s) =>
+        `<option value="${s.key}" data-avail="${s.available}" ${s.key === chosen ? 'selected' : ''}>${escOpt(here.includes(s) ? s.product : s.label)}</option>`).join('');
+      row.dataset.key = '';
+      select.dispatchEvent(new Event('change'));
+    },
+
+    refresh(list) {
+      list.querySelectorAll('.line').forEach((row) => this.fill(row, list));
+      const place = this.placeOf(list);
+      const hasStock = place && stock.some((s) => s.location_id === place.location_id);
+      list.parentElement.querySelector('.items-note').textContent = hasStock
+        ? `Showing the stock held at ${place.name}.`
+        : (place ? `${place.name} has no free stock, so stock from every location is shown.` : 'Showing stock from every Inventory location.');
+    },
+
+    add(list, key = '', qty = 1, weight = '') {
+      const i = ++lineSerial;
+      const row = document.createElement('div');
+      row.className = 'line';
+      row.dataset.key = key;
+      row.innerHTML = `
+        <div class="field"><label>Product</label>
+          <select name="items[${i}][key]" required></select></div>
+        <div class="field"><label>Quantity</label><input type="number" min="1" name="items[${i}][quantity]" value="${escOpt(qty)}" required></div>
+        <div class="field"><label>Unit weight (kg)</label><input type="number" min="0" step="0.01" name="items[${i}][unit_weight_kg]" value="${escOpt(weight)}" placeholder="optional"></div>
+        <button type="button" class="btn remove" aria-label="Remove item">✕</button>
+        <div class="avail"></div>
+        <input type="hidden" name="items[${i}][pickup]" value="${list.dataset.pickup}">`;
+      const select = row.querySelector('select'), input = row.querySelector('input[type=number]'), avail = row.querySelector('.avail');
+      select.addEventListener('change', () => {
+        const max = select.selectedOptions[0]?.dataset.avail;
+        avail.textContent = max ? `${max} available` : '';
+        if (max) input.max = max; else input.removeAttribute('max');
+        this.sync(list);
+      });
+      // A shipment needs at least one item somewhere, so the last line overall stays.
+      row.querySelector('.remove').addEventListener('click', () => {
+        if (document.querySelectorAll('.pickup-items .line').length > 1) { row.remove(); this.sync(list); }
+      });
+      list.appendChild(row);
+      this.fill(row, list);
+    },
+
+    // A product already on one line of this stop can't be picked again on another line here:
+    // raise that line's quantity. The same product at a different stop or warehouse is fine.
+    sync(list) {
+      const selects = [...list.querySelectorAll('.line select')];
+      selects.forEach((select) => {
+        const taken = selects.filter((other) => other !== select && other.value).map((other) => other.value);
+        [...select.options].forEach((option) => {
+          const used = option.value !== '' && taken.includes(option.value);
+          option.disabled = used;
+          option.textContent = option.textContent.replace(/ \(already added\)$/, '') + (used ? ' (already added)' : '');
+        });
+      });
+    },
+
+    clear(list) { list.innerHTML = ''; },
+  };
+
+  itemLists.forEach((list) => {
+    list.parentElement.querySelector('.pickup-add-item').addEventListener('click', () => pickupItems.add(list));
+    // The stop's name decides which stock is offered: typed, or picked from the suggestions.
+    const name = document.getElementById(list.dataset.nameInput);
+    ['input', 'change', 'place:chosen'].forEach((type) => name.addEventListener(type, () => pickupItems.refresh(list)));
+    pickupItems.refresh(list);
+  });
+  // After a failed save, put each line back under its stop; otherwise start the origin with one.
+  previous.forEach((l) => { const list = pickupItems.list(l.pickup ?? 1) || itemLists[0]; if (list) pickupItems.add(list, l.key, l.quantity, l.unit_weight_kg ?? ''); });
+  if (!previous.length && itemLists.length) pickupItems.add(itemLists[0]);
 
   /**
    * "Smart location" search: one field that resolves City/Province/Postal from the
@@ -385,7 +601,69 @@
       province.value = r.province;
       postal.value = r.postal_code;
       show('resolved', $('loc_change_btn'));
+      autoSet = false; // a deliberate pick is never replaced by a guess from the address
+      detectFromAddress();
     }
+
+    // Read the Address field for a place name. One clear match fills the Location in (unless
+    // the user already chose one); anything less certain, or a clash with the chosen
+    // Location, is offered as a suggestion to click.
+    const address = $('address');
+    const suggest = $('loc_suggest');
+    let autoSet = false;
+    let detectId = 0;
+
+    function applyPlace(r, byGuess) {
+      city.value = r.city;
+      province.value = r.province;
+      postal.value = r.postal_code;
+      autoSet = byGuess;
+      show('resolved');
+    }
+
+    function offer(text, places) {
+      suggest.textContent = text;
+      places.forEach((r) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn sm';
+        button.textContent = `${r.city}, ${r.province}`;
+        button.addEventListener('click', () => { applyPlace(r, false); suggest.hidden = true; });
+        suggest.append(button);
+      });
+      suggest.hidden = false;
+    }
+
+    async function detectFromAddress() {
+      const text = address.value.trim();
+      const myDetect = ++detectId;
+      let places = [];
+      if (text.length >= 3) {
+        try {
+          const res = await fetch(`{{ route('locations.detect') }}?${new URLSearchParams({ text })}`, { headers: { Accept: 'application/json' } });
+          if (res.ok) places = await res.json();
+        } catch { /* offline: no suggestion, typing still works */ }
+      }
+      if (myDetect !== detectId) return; // the address changed again while this was loading
+
+      suggest.hidden = true;
+      const exact = places.filter((r) => r.exact);
+      const chosen = city.value.trim().toLowerCase();
+      if (!places.length || places.some((r) => r.city.toLowerCase() === chosen)) return; // nothing found, or it already agrees
+
+      if (exact.length === 1 && (!chosen || autoSet)) {
+        applyPlace(exact[0], true);
+        offer('Location set from the address. Use Change if it is not right.', []);
+      } else if (chosen && !autoSet) {
+        offer(`The address mentions another place than ${city.value}. Switch to:`, exact.length ? exact : places);
+      } else {
+        offer('Places found in the address:', places);
+      }
+    }
+
+    let detectTimer;
+    address.addEventListener('input', () => { clearTimeout(detectTimer); detectTimer = setTimeout(detectFromAddress, 500); });
+    address.addEventListener('change', () => { clearTimeout(detectTimer); detectFromAddress(); });
 
     // Lets other scripts (the Inventory place picker) fill this block.
     block.addEventListener('loc:set', (e) => selectResult(e.detail));
@@ -414,6 +692,8 @@
       city.value = query.value;
       province.value = '';
       postal.value = '';
+      autoSet = false;
+      suggest.hidden = true;
       clearBtn.hidden = !query.value;
       setInvalid(false);
       clearTimeout(debounceTimer);
@@ -457,19 +737,126 @@
   initLocationBlock('origin');
   initLocationBlock('destination');
 
+  // Extra pickup stops: revealed one at a time. A hidden stop is disabled, so it is
+  // neither checked nor sent.
+  (function () {
+    const stops = [...document.querySelectorAll('.pickup-extra')];
+    const addBtn = document.getElementById('pickup-add');
+    stops.forEach((stop, i) => initLocationBlock('pickup' + (i + 2)));
+
+    function refresh() {
+      // Number the visible stops 2, 3, ... whatever order they were added or removed in.
+      stops.filter((s) => !s.hidden).forEach((s, i) => { s.querySelector('.pickup-no').textContent = i + 2; });
+      addBtn.hidden = stops.every((s) => !s.hidden);
+    }
+
+    addBtn.addEventListener('click', () => {
+      const next = stops.find((s) => s.hidden);
+      if (!next) return;
+      next.hidden = next.disabled = false;
+      const items = next.querySelector('.pickup-items');
+      if (items && !items.children.length) pickupItems.add(items);
+      refresh();
+      next.querySelector('input').focus();
+    });
+
+    stops.forEach((stop) => stop.querySelector('.pickup-remove').addEventListener('click', () => {
+      const items = stop.querySelector('.pickup-items');
+      if (items) pickupItems.clear(items);
+      stop.querySelectorAll('input').forEach((input) => { input.value = ''; });
+      stop.querySelector('[id$="_loc_resolved"]').hidden = true;
+      stop.querySelector('[id$="_loc_suggest"]').hidden = true;
+      stop.querySelector('[id$="_loc_manual"]').hidden = true;
+      stop.querySelector('[id$="_loc_search"]').hidden = false;
+      stop.hidden = stop.disabled = true;
+      refresh();
+      addBtn.focus();
+    }));
+
+    refresh();
+  })();
+
   // Keep "no past dates/times" accurate to the browser's own clock, not just the moment the
   // page was rendered — a page left open a while shouldn't quietly let a stale minute through.
   // The server's own `after:now` validation is still the real enforcement either way.
   (function refreshScheduleMin() {
-    const input = document.getElementById('scheduled_delivery_at');
+    const pickup = document.getElementById('scheduled_pickup_at');
+    const delivery = document.getElementById('scheduled_delivery_at');
     function apply() {
       const d = new Date(Date.now() + 60000); // +1 minute, matching the backend's strict "after now"
       const pad = (n) => String(n).padStart(2, '0');
-      input.min = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const soonest = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      pickup.min = soonest;
+      // Delivery can't come before pickup: its earliest allowed time follows the pickup chosen.
+      delivery.min = pickup.value && pickup.value > soonest ? pickup.value : soonest;
     }
     apply();
-    input.addEventListener('focus', apply);
+    [pickup, delivery].forEach((input) => input.addEventListener('focus', apply));
+    pickup.addEventListener('change', () => {
+      apply();
+      // A delivery time already entered that now falls before the pickup is cleared, not silently kept.
+      if (delivery.value && delivery.value < pickup.value) delivery.value = '';
+    });
     setInterval(apply, 60000);
+    // After a failed save, bring the schedule message into view.
+    document.getElementById('schedule-errors')?.scrollIntoView({ block: 'center' });
+  })();
+
+  // The summary panel: a running picture of the shipment as the form is filled in, and how
+  // many required fields are still empty.
+  (function () {
+    const form = document.getElementById('shipmentForm');
+    const $ = (id) => document.getElementById(id);
+    const val = (id) => ($(id)?.value || '').trim();
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const when = (v) => v ? new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+    const picked = (id) => { const s = $(id); return s && s.value ? s.selectedOptions[0].textContent : 'Unassigned'; };
+
+    function stopRow(label, name, city, fallback) {
+      return `<li><span class="${name ? '' : 'unset'}">${esc(name || fallback)}</span><small>${esc([label, city].filter(Boolean).join(' · '))}</small></li>`;
+    }
+
+    function update() {
+      const stops = [stopRow('Stop 1 · Origin', val('origin_name'), val('origin_city'), 'Origin not set')];
+      document.querySelectorAll('.pickup-extra:not([hidden])').forEach((stop) => {
+        const p = stop.querySelector('input[id$="_name"]').id.replace('_name', '');
+        stops.push(stopRow('Stop ' + stop.querySelector('.pickup-no').textContent, val(p + '_name'), val(p + '_city'), 'Pickup not set'));
+      });
+      stops.push(stopRow('Deliver to', val('destination_name'), val('destination_city'), 'Destination not set'));
+      $('sumRoute').innerHTML = stops.join('');
+
+      $('sumPickup').textContent = when(val('scheduled_pickup_at'));
+      $('sumDelivery').textContent = when(val('scheduled_delivery_at'));
+      $('sumDriver').textContent = picked('driver_id');
+      $('sumVehicle').textContent = picked('vehicle_id');
+
+      const lines = [...document.querySelectorAll('.pickup-items .line')].filter((row) => row.querySelector('select').value);
+      const units = lines.reduce((sum, row) => sum + (parseInt(row.querySelector('input[type=number]').value, 10) || 0), 0);
+      $('sumItems').textContent = lines.length ? `${lines.length} ${lines.length === 1 ? 'product' : 'products'} · ${units.toLocaleString()} ${units === 1 ? 'unit' : 'units'}` : 'None yet';
+
+      // Disabled (hidden) stops don't count: the browser leaves them out of :invalid.
+      const missing = [...form.querySelectorAll(':required:invalid')];
+      const todo = $('sumTodo');
+      todo.className = 'sf-todo' + (missing.length ? '' : ' ready');
+      if (missing.length) {
+        todo.innerHTML = `${missing.length} required ${missing.length === 1 ? 'field' : 'fields'} still to fill in. <button type="button">Show me</button>`;
+        todo.querySelector('button').onclick = () => {
+          const first = missing[0];
+          // A city field hidden behind the location search can't take focus: use the search box.
+          const target = first.offsetParent ? first : first.closest('.loc-block')?.querySelector('input[id$="_loc_query"]');
+          (target || first).scrollIntoView({ block: 'center', behavior: 'smooth' });
+          (target || first).focus({ preventScroll: true });
+        };
+      } else {
+        todo.textContent = 'All required fields are filled in.';
+      }
+    }
+
+    let queued = false;
+    const queue = () => { if (!queued) { queued = true; setTimeout(() => { queued = false; update(); }, 80); } };
+    // Typing, picking a suggestion, adding or removing a stop or an item all end in one of these.
+    ['input', 'change', 'click', 'mousedown', 'keyup', 'focusout'].forEach((type) => form.addEventListener(type, queue));
+    update();
   })();
 </script>
 @endpush

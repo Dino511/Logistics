@@ -15,6 +15,9 @@ class Shipment extends Model
         'delivered', 'returned', 'cancelled',
     ];
 
+    /** The most places one shipment can collect from, the origin included. */
+    public const MAX_PICKUPS = 5;
+
     /** Not finished yet: still to be delivered, and still holding its stock. */
     public const OPEN_STATUSES = ['pending', 'ready_for_pickup', 'picked_up', 'in_transit', 'out_for_delivery', 'delivery_attempted', 'held_for_pickup', 'delayed'];
 
@@ -89,6 +92,21 @@ class Shipment extends Model
     public function allocations()
     {
         return $this->hasMany(ShipmentVehicleAllocation::class, 'shipment_id', 'shipment_id')->orderBy('sequence');
+    }
+
+    /**
+     * Pickup stops in visiting order, for shipments that collect from several places.
+     * Empty when there is a single pickup (the origin).
+     */
+    public function pickups()
+    {
+        return $this->hasMany(ShipmentPickup::class, 'shipment_id', 'shipment_id')->orderBy('sequence');
+    }
+
+    /** The next stop still to be collected, if any. */
+    public function nextPickup(): ?ShipmentPickup
+    {
+        return $this->pickups->first(fn ($p) => ! $p->isCollected());
     }
 
     public function driver()

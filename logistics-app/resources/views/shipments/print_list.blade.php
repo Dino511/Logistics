@@ -40,7 +40,7 @@
     Generated {{ now()->format('M j, Y g:i A') }} by {{ auth()->user()->name }} ({{ auth()->user()->roleLabel() }})<br>
     @php
       $applied = collect([
-        $status ? 'Status: '.\App\Models\Shipment::label($status) : null,
+        $status ? 'Status: '.($status === 'open' ? 'Not delivered yet' : \App\Models\Shipment::label($status)) : null,
         $search !== '' ? 'Search: “'.$search.'”' : null,
       ])->filter();
     @endphp
@@ -64,7 +64,7 @@
           <td class="nowrap">{{ $sh->statusLabel() }}</td>
           <td class="nowrap">{{ $sh->scheduled_delivery_at?->format('M j, Y g:i A') ?? '—' }}</td>
           <td class="nowrap">{{ $sh->actual_delivery_at?->format('M j, Y g:i A') ?? '—' }}</td>
-          <td class="nowrap">{{ ['on_time' => 'On time', 'late' => 'Late'][$sh->delivery_result] ?? '—' }}</td>
+          <td class="nowrap">{{ ['on_time' => 'On time', 'late' => 'Late'][$sh->delivery_result ?? ''] ?? '—' }}</td>
         </tr>
       @empty
         <tr><td colspan="8" style="text-align:center;padding:20px">No shipments match these filters.</td></tr>

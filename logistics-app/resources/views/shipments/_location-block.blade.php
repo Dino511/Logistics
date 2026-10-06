@@ -53,6 +53,9 @@
     </div>
   </div>
 
+  {{-- Places found in the Address field: filled in when there is one clear match, offered otherwise. --}}
+  <div class="loc-suggest" id="{{ $prefix }}_loc_suggest" aria-live="polite" hidden></div>
+
   <div class="loc-manual" id="{{ $prefix }}_loc_manual" @unless ($startView === 'manual') hidden @endunless>
     <div class="form-grid loc-manual-grid">
       <div class="field"><label for="{{ $prefix }}_city">City / municipality</label>

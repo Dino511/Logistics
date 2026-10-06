@@ -95,6 +95,25 @@
     <p class="notes"><strong>Instructions:</strong> {{ $shipment->notes }}</p>
   @endif
 
+  @if ($shipment->pickups->isNotEmpty())
+    <h2>Pickup stops</h2>
+    <table>
+      <thead><tr><th style="width:30px">#</th><th>Place</th><th>Address</th><th>Items to collect</th><th style="width:130px">Planned</th><th style="width:140px">Collected</th></tr></thead>
+      <tbody>
+        @foreach ($shipment->pickups as $stop)
+          <tr>
+            <td>{{ $stop->sequence }}</td>
+            <td>{{ $stop->name }}</td>
+            <td>{{ collect([$stop->address, $stop->city, $stop->province, $stop->postal_code])->filter()->implode(', ') }}</td>
+            <td>{{ $shipment->items->where('pickup_sequence', $stop->sequence)->map(fn ($i) => number_format($i->quantity).' × '.$i->item_name)->implode(', ') ?: '—' }}</td>
+            <td>{{ $when($stop->scheduled_at) }}</td>
+            <td>{{ $when($stop->picked_up_at) }}</td>
+          </tr>
+        @endforeach
+      </tbody>
+    </table>
+  @endif
+
   <h2>Items</h2>
   <table>
     <thead><tr><th style="width:120px">SKU</th><th>Item</th><th class="num" style="width:90px">Quantity</th><th class="num" style="width:110px">Weight</th></tr></thead>

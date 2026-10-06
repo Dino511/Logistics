@@ -51,6 +51,7 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
 
     // Read-only city/province/postal-code lookup for the shipment form's autocomplete.
     Route::get('/locations/search', [LocationController::class, 'search'])->name('locations.search');
+    Route::get('/locations/detect', [LocationController::class, 'detect'])->name('locations.detect');
 
     // Creating and updating shipments, and managing the fleet and drivers:
     // Manager and Logistics Coordinator (Super Admin always passes).
@@ -82,6 +83,8 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
 
     // Field Personnel updating a delivery assigned to them (the controller checks the assignment).
     Route::post('/shipments/{shipment}/field-update', [ShipmentController::class, 'fieldUpdate'])->name('shipments.field-update');
+    // Ticking off one pickup stop of a multi-pickup shipment (the controller checks who may).
+    Route::post('/shipments/{shipment}/pickups/{pickup}/collect', [ShipmentController::class, 'collectPickup'])->name('shipments.pickups.collect');
 
     // Driver SOS: an urgent alert to the office (the controller checks the role).
     Route::post('/sos', [SosController::class, 'store'])->middleware('throttle:3,1')->name('sos.store');

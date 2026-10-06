@@ -54,6 +54,28 @@
   .sd-arrow { position:relative; width:clamp(80px, 22vw, 260px); height:2px; background:repeating-linear-gradient(to right, var(--border) 0 8px, transparent 8px 14px); }
   .sd-arrow span { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) scaleX(-1); width:34px; height:34px; display:grid; place-items:center; border-radius:50%; background:var(--card); border:1px solid var(--border); font-size:1rem; }
   .sd-facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin:0; padding-top:16px; border-top:1px solid var(--border); }
+  .sd-more-stops { font-size:.82rem; color:var(--primary); text-decoration:none; font-weight:600; }
+  .sd-stops { margin-bottom:24px; }
+  .sd-stops-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .sd-stops-head h2 { margin:0; }
+  .sd-stop-list { list-style:none; margin:0; padding:0; }
+  .sd-stop-list li { display:flex; align-items:center; gap:12px; padding:12px 0; }
+  .sd-stop-list li + li { border-top:1px solid var(--border); }
+  .sd-stop-no { flex-shrink:0; width:30px; height:30px; display:grid; place-items:center; border-radius:50%; border:2px solid var(--border); font-weight:700; font-size:.85rem; color:var(--muted); }
+  .sd-stop-list li.next .sd-stop-no { border-color:var(--primary); color:var(--primary); }
+  .sd-stop-list li.done .sd-stop-no { border-color:#1a8a4a; background:#1a8a4a; color:#fff; }
+  .sd-stop-body { flex:1; min-width:0; }
+  .sd-stop-body strong, .sd-stop-body span, .sd-stop-body small { display:block; overflow-wrap:anywhere; }
+  .sd-stop-body span { color:var(--muted); font-size:.88rem; }
+  .sd-stop-body small { color:var(--muted); font-size:.8rem; margin-top:2px; }
+  .sd-stop-items { list-style:none; margin:6px 0 0; padding:0; font-size:.86rem; }
+  .sd-stop-items li { padding:1px 0; }
+  .sd-stop-items span { color:var(--muted); font-size:.78rem; }
+  .sd-stop-actions { display:flex; gap:8px; align-items:center; flex-shrink:0; }
+  .sd-stop-actions form { margin:0; }
+  .sd-stop-actions a.btn { text-decoration:none; }
+  .sd-stops-hint { margin:10px 0 0; font-size:.82rem; color:var(--muted); }
+  @media (max-width:640px) { .sd-stop-list li { flex-wrap:wrap; } .sd-stop-actions { width:100%; padding-left:42px; } }
   .sd-facts dt { font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
   .sd-facts dd { margin:0; font-weight:600; font-size:.92rem; }
   .sd-facts .call-link { font-size:.82rem; margin-left:4px; }
@@ -145,6 +167,9 @@
         <strong>{{ $shipment->origin_name }}</strong>
         <span>{{ $shipment->origin_address }}</span>
         <span>{{ $place($shipment->origin_city, $shipment->origin_province, $shipment->origin_postal_code) }}</span>
+        @if ($shipment->pickups->count() > 1)
+          <a class="sd-more-stops" href="#pickups">{{ trans_choice('+ :count more pickup stop|+ :count more pickup stops', $shipment->pickups->count() - 1) }}</a>
+        @endif
       </div>
       <div class="sd-arrow" aria-hidden="true"><span>🚚</span></div>
       <div class="sd-end">
@@ -179,6 +204,63 @@
   <div class="sd-layout {{ $hasActions ? 'with-actions' : '' }}">
     {{-- 2. Main column: where it is, then everything else in tabs. --}}
     <div class="sd-main">
+      {{-- Several places to collect from: each stop is ticked off as it's collected. --}}
+      @if ($shipment->pickups->isNotEmpty())
+        @php
+          $collectedCount = $shipment->pickups->filter->isCollected()->count();
+          $stopsOpen = $shipment->status !== 'pending' && in_array($shipment->status, \App\Models\Shipment::OPEN_STATUSES, true);
+          $canCollect = ($canManage || $isAssigned) && $stopsOpen;
+          $nextStop = $shipment->nextPickup();
+        @endphp
+        <section class="card sd-stops" id="pickups">
+          <div class="sd-stops-head">
+            <h2>{{ __('Pickup stops') }}</h2>
+            <span class="badge {{ $collectedCount === $shipment->pickups->count() ? 'b-delivered' : 'b-pending' }}">{{ __(':done of :total collected', ['done' => $collectedCount, 'total' => $shipment->pickups->count()]) }}</span>
+          </div>
+          <ol class="sd-stop-list">
+            @foreach ($shipment->pickups as $stop)
+              <li class="{{ $stop->isCollected() ? 'done' : ($nextStop && $stop->is($nextStop) ? 'next' : '') }}">
+                <span class="sd-stop-no" aria-hidden="true">{{ $stop->sequence }}</span>
+                <div class="sd-stop-body">
+                  <strong>{{ $stop->name }}</strong>
+                  <span>{{ collect([$stop->address, $stop->city, $stop->province])->filter()->implode(', ') }}</span>
+                  @php $stopItems = $shipment->items->where('pickup_sequence', $stop->sequence); @endphp
+                  @if ($stopItems->isNotEmpty())
+                    <ul class="sd-stop-items">
+                      @foreach ($stopItems as $item)
+                        <li>{{ number_format($item->quantity) }} × {{ $item->item_name }} <span>{{ $item->sku }}</span></li>
+                      @endforeach
+                    </ul>
+                  @endif
+                  @if ($stop->isCollected())
+                    <small>{{ __('Collected :when', ['when' => $stop->picked_up_at->translatedFormat('M j, g:i A')]) }}@if ($stop->collector) · {{ $stop->collector->name }}@endif</small>
+                  @elseif ($stop->scheduled_at)
+                    <small>{{ __('Planned for :when', ['when' => $stop->scheduled_at->translatedFormat('M j, g:i A')]) }}</small>
+                  @endif
+                </div>
+                <div class="sd-stop-actions">
+                  @if ($stop->isCollected())
+                    <span class="badge b-delivered">{{ __('Collected') }}</span>
+                  @else
+                    <a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination={{ urlencode($stop->mapsQuery()) }}" target="_blank" rel="noopener">{{ __('Directions') }}</a>
+                    @if ($canCollect)
+                      <form method="POST" action="{{ route('shipments.pickups.collect', [$shipment, $stop]) }}"
+                            onsubmit="return confirm(@js(__('Mark this pickup as collected? This cannot be undone.')))">
+                        @csrf
+                        <button type="submit" class="btn sm primary">{{ __('Mark collected') }}</button>
+                      </form>
+                    @endif
+                  @endif
+                </div>
+              </li>
+            @endforeach
+          </ol>
+          @if (! $stopsOpen && $shipment->status === 'pending' && ($canManage || $isAssigned))
+            <p class="sd-stops-hint">{{ __('Stops can be ticked off once the shipment is released: marked Ready for pickup, or dispatched.') }}</p>
+          @endif
+        </section>
+      @endif
+
       @include('shipments._route-map', [
         'shipments' => $shipment,
         'mapId' => 'shipment-route-map',

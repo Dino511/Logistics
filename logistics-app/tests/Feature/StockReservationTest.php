@@ -40,6 +40,7 @@ class StockReservationTest extends TestCase
                 $t->decimal("{$end}_latitude", 10, 7)->nullable();
                 $t->decimal("{$end}_longitude", 10, 7)->nullable();
             }
+            $t->dateTime('scheduled_pickup_at')->nullable();
             $t->dateTime('scheduled_delivery_at')->nullable();
             $t->unsignedBigInteger('driver_id')->nullable();
             $t->unsignedBigInteger('vehicle_id')->nullable();
@@ -56,6 +57,7 @@ class StockReservationTest extends TestCase
             $t->string('item_name')->nullable();
             $t->integer('quantity');
             $t->decimal('unit_weight_kg', 10, 2)->nullable();
+            $t->unsignedSmallInteger('pickup_sequence')->nullable();
         });
         Schema::create('shipment_status_history', function (Blueprint $t) {
             $t->id('history_id');
@@ -104,11 +106,12 @@ class StockReservationTest extends TestCase
         $this->coordinator = $this->user(Role::LogisticsCoordinator);
     }
 
-    private function createShipment(int $quantity)
+    private function createShipment(int $quantity, array $overrides = [])
     {
-        return $this->actingAs($this->coordinator)->post('/shipments', [
+        return $this->actingAs($this->coordinator)->post('/shipments', $overrides + [
             'origin_name' => 'Main Store', 'origin_address' => '1 Rizal St', 'origin_city' => 'Manila',
             'destination_name' => 'Branch', 'destination_address' => '2 Mabini St', 'destination_city' => 'Quezon City',
+            'scheduled_pickup_at' => now()->addHours(2)->format('Y-m-d H:i'),
             'scheduled_delivery_at' => now()->addDay()->format('Y-m-d H:i'),
             'items' => [['key' => '1:1', 'quantity' => $quantity]],
         ]);
@@ -192,5 +195,83 @@ class StockReservationTest extends TestCase
         $this->createShipment(30);
         $view = $this->actingAs($this->coordinator)->get('/shipments/create')->viewData('stockOptions');
         $this->assertNull(collect($view)->firstWhere('key', '1:1'), 'fully reserved stock is not offered at all');
+    }
+
+    public function test_a_shipment_needs_a_pickup_time_and_a_delivery_that_is_not_before_it(): void
+    {
+        $this->createShipment(1, ['scheduled_pickup_at' => null])->assertSessionHasErrors('scheduled_pickup_at');
+
+        $this->createShipment(1, [
+            'scheduled_pickup_at' => now()->addDays(9)->format('Y-m-d H:i'),
+            'scheduled_delivery_at' => now()->addDay()->format('Y-m-d H:i'),
+        ])->assertSessionHasErrors(['scheduled_delivery_at' => "The scheduled delivery can't be earlier than the scheduled pickup."]);
+
+        $this->assertSame(0, $this->reservedForSardines());
+
+        // The message sits with the schedule fields, not in the list at the top of the form.
+        $this->followingRedirects()->from('/shipments/create')->actingAs($this->coordinator)->post('/shipments', ['scheduled_pickup_at' => ''])
+            ->assertSee('id="schedule-errors"', false)->assertSee('Enter the scheduled pickup date and time.');
+    }
+
+    public function test_extra_pickups_are_saved_as_ordered_stops_starting_with_the_origin(): void
+    {
+        $this->createShipment(1, [
+            'pickup2_name' => 'Supplier A', 'pickup2_address' => '5 Aurora Blvd', 'pickup2_city' => 'Quezon City',
+            'pickup2_scheduled_at' => now()->addHours(4)->format('Y-m-d H:i'),
+            // Stop 3 left blank on purpose; stop 4 filled in: saved as the third stop.
+            'pickup4_name' => 'Supplier B', 'pickup4_address' => '9 Shaw Blvd', 'pickup4_city' => 'Pasig',
+        ])->assertSessionHasNoErrors()->assertRedirect();
+
+        $stops = Shipment::firstOrFail()->pickups;
+        $this->assertSame([1, 2, 3], $stops->pluck('sequence')->all());
+        $this->assertSame(['Main Store', 'Supplier A', 'Supplier B'], $stops->pluck('name')->all());
+        $this->assertSame('Manila', $stops[0]->city);
+        $this->assertNotNull($stops[0]->scheduled_at);
+        $this->assertNotNull($stops[1]->scheduled_at);
+        $this->assertNull($stops[2]->scheduled_at);
+        $this->assertTrue($stops->every(fn ($s) => ! $s->isCollected()));
+    }
+
+    public function test_a_single_pickup_shipment_has_no_stop_rows_and_a_half_filled_stop_is_rejected(): void
+    {
+        $this->createShipment(1)->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('shipment_pickups', 0);
+
+        $this->createShipment(1, ['pickup2_name' => 'Supplier A'])->assertSessionHasErrors(['pickup2_address', 'pickup2_city']);
+        $this->createShipment(1, [
+            'pickup2_name' => 'Supplier A', 'pickup2_address' => '5 Aurora Blvd', 'pickup2_city' => 'Quezon City',
+            'pickup2_scheduled_at' => now()->addDays(5)->format('Y-m-d H:i'), // after the delivery
+        ])->assertSessionHasErrors('pickup2_scheduled_at');
+        $this->assertDatabaseCount('shipment_pickups', 0);
+    }
+
+    public function test_items_are_saved_against_the_stop_they_are_collected_at(): void
+    {
+        $this->createShipment(1, [
+            // Stops 2 and 3 are left blank, so the form's stop 4 is saved as the second stop.
+            'pickup4_name' => 'Supplier B', 'pickup4_address' => '9 Shaw Blvd', 'pickup4_city' => 'Pasig',
+            'items' => [
+                ['key' => '1:1', 'quantity' => 3, 'pickup' => 1],
+                ['key' => '1:1', 'quantity' => 2, 'pickup' => 4],
+                ['key' => '1:1', 'quantity' => 4, 'pickup' => 4], // same product, same stop: merged
+            ],
+        ])->assertSessionHasNoErrors()->assertRedirect();
+
+        $items = Shipment::firstOrFail()->items->sortBy('pickup_sequence')->values();
+        $this->assertSame([[1, 3], [2, 6]], $items->map(fn ($i) => [(int) $i->pickup_sequence, (int) $i->quantity])->all());
+        $this->assertSame(9, $this->reservedForSardines());
+    }
+
+    public function test_stock_is_checked_across_every_stop_together_and_single_pickups_record_no_stop(): void
+    {
+        // 60 at each of two stops is 120 of the 100 in stock.
+        $this->createShipment(1, [
+            'pickup2_name' => 'Supplier A', 'pickup2_address' => '5 Aurora Blvd', 'pickup2_city' => 'Quezon City',
+            'items' => [['key' => '1:1', 'quantity' => 60, 'pickup' => 1], ['key' => '1:1', 'quantity' => 60, 'pickup' => 2]],
+        ])->assertSessionHasErrors('items');
+        $this->assertSame(0, $this->reservedForSardines());
+
+        $this->createShipment(5)->assertSessionHasNoErrors();
+        $this->assertNull(Shipment::firstOrFail()->items->first()->pickup_sequence);
     }
 }

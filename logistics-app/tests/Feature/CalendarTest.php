@@ -139,7 +139,9 @@ class CalendarTest extends TestCase
         $office = $this->user(Role::LogisticsCoordinator);
 
         $this->actingAs($office)->get("/calendar?date=2026-10-01&day=2026-10-12&driver_id={$a->id}")->assertSee('SH-ANA')->assertDontSee('SH-BEN');
-        $this->actingAs($office)->get('/calendar?date=2026-10-01&day=2026-10-12&status=cancelled')->assertSee('SH-BEN')->assertDontSee('SH-ANA');
+        $this->actingAs($office)->get('/calendar?date=2026-10-01&day=2026-10-12&status=cancelled')->assertSee('SH-BEN')
+            // SH-ANA still appears in the page-wide reminder, so look for its calendar entry.
+            ->assertDontSee('<strong>SH-ANA</strong>', false);
     }
 
     public function test_week_view_covers_only_that_week_and_bad_dates_fall_back_to_today(): void
@@ -147,7 +149,7 @@ class CalendarTest extends TestCase
         $this->shipment('SH-NEXT-WEEK');
         $office = $this->user(Role::Manager);
 
-        $this->actingAs($office)->get('/calendar?view=week&date=2026-10-05')->assertOk()->assertSee('Oct 4 – Oct 10, 2026')->assertDontSee('SH-NEXT-WEEK');
+        $this->actingAs($office)->get('/calendar?view=week&date=2026-10-05')->assertOk()->assertSee('Oct 4 – Oct 10, 2026')->assertDontSee('<strong>SH-NEXT-WEEK</strong>', false);
         $this->actingAs($office)->get('/calendar?view=week&date=2026-10-12&day=2026-10-12')->assertSee('SH-NEXT-WEEK');
         $this->actingAs($office)->get('/calendar?date=not-a-date&day=2026-99-99')->assertOk()->assertSee('October 2026');
     }

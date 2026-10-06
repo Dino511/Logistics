@@ -127,6 +127,14 @@
   aside .nav-group.collapsed .nav-items > div { visibility:hidden; transition:visibility 0s .2s; } /* no tabbing into hidden links */
   aside .nav-group.current .nav-toggle { color:#fff; }
   main { flex:1; padding:24px; min-width:0; }
+  .open-banner { display:flex; align-items:center; gap:12px; padding:10px 14px; margin-bottom:16px; border-radius:10px; text-decoration:none; color:var(--text); font-size:.9rem;
+    border:1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); background:color-mix(in srgb, var(--primary) 9%, var(--card)); }
+  .open-banner:hover { background:color-mix(in srgb, var(--primary) 15%, var(--card)); }
+  .open-banner.overdue { border-color:#d13438; background:color-mix(in srgb, #d13438 9%, var(--card)); }
+  .open-banner-text { flex:1; min-width:0; }
+  .open-banner-text strong { margin-right:6px; }
+  .open-banner-go { flex-shrink:0; font-weight:600; color:var(--primary); }
+  @media print { .open-banner { display:none; } }
   header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; gap:12px; }
   header h1 { margin:0; font-size:1.5rem; }
   header form { display:flex; align-items:center; gap:12px; font-size:.9rem; }
@@ -291,6 +299,24 @@
       </div>
       </div>
     </header>
+
+    {{-- Stays on every page while any delivery is unfinished; gone once they all are. --}}
+    @if ($open = app(\App\Services\OpenShipments::class)->reminderFor(auth()->user()))
+      <a class="open-banner {{ $open['overdue'] ? 'overdue' : '' }}" href="{{ $open['url'] }}" role="status">
+        <span class="open-banner-icon" aria-hidden="true">🚚</span>
+        <span class="open-banner-text">
+          @if ($open['count'] === 1)
+            <strong>{{ __('1 shipment is not delivered yet') }}</strong>
+            {{ $open['first']->tracking_number }} · {{ __($open['first']->statusLabel()) }} · {{ __('due :when', ['when' => $open['first']->scheduled_delivery_at->translatedFormat('M j, g:i A')]) }}
+          @else
+            <strong>{{ __(':count shipments are not delivered yet', ['count' => $open['count']]) }}</strong>
+            {{ __('Next due: :tracking, :when', ['tracking' => $open['first']->tracking_number, 'when' => $open['first']->scheduled_delivery_at->translatedFormat('M j, g:i A')]) }}
+          @endif
+          @if ($open['overdue']) <span class="badge b-delayed">{{ trans_choice(':count overdue|:count overdue', $open['overdue']) }}</span> @endif
+        </span>
+        <span class="open-banner-go">{{ __('View') }}</span>
+      </a>
+    @endif
 
     @foreach (['status' => 'success', 'warning' => 'warning', 'error' => 'error'] as $key => $type)
       @if (session($key))
