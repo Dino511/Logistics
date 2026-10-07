@@ -136,14 +136,14 @@ class EmergencyTest extends TestCase
         $this->assertSame(0, EmergencyContact::where('name', 'like', 'Bad %')->count());
     }
 
-    public function test_only_managers_and_super_admins_manage_contacts(): void
+    public function test_only_administrators_manage_contacts(): void
     {
-        $this->actingAs($this->admin)->get('/emergency-contacts')->assertOk();
-
-        foreach ([$this->coordinator, $this->field] as $user) {
-            $this->actingAs($user)->get('/emergency-contacts')->assertForbidden();
-            $this->actingAs($user)->post('/emergency-contacts', ['name' => 'X', 'phone' => '123', 'category' => 'other'])->assertForbidden();
+        foreach ([$this->admin, $this->manager, $this->coordinator] as $user) {
+            $this->actingAs($user)->get('/emergency-contacts')->assertOk();
         }
+
+        $this->actingAs($this->field)->get('/emergency-contacts')->assertForbidden();
+        $this->actingAs($this->field)->post('/emergency-contacts', ['name' => 'X', 'phone' => '123', 'category' => 'other'])->assertForbidden();
     }
 
     public function test_drivers_see_the_emergency_button_with_tap_to_call_numbers(): void
@@ -160,7 +160,7 @@ class EmergencyTest extends TestCase
         $this->actingAs($this->manager)->get('/shipments')->assertOk()->assertDontSee('id="sosOpen"', false);
     }
 
-    public function test_sos_alerts_all_managers_and_admins_with_the_delivery_and_location(): void
+    public function test_sos_alerts_the_managers_and_coordinators_with_the_delivery_and_location(): void
     {
         $s = $this->shipment();
         VehicleLocationPing::create(['driver_id' => $this->driver->id, 'shipment_id' => $s->shipment_id, 'vehicle_id' => 1, 'latitude' => 14.58, 'longitude' => 121.06, 'recorded_at' => now()->subMinutes(2)]);
@@ -168,13 +168,14 @@ class EmergencyTest extends TestCase
         $this->actingAs($this->field)->post('/sos', ['shipment_id' => $s->shipment_id, 'message' => 'Flat tyre, unsafe area'])
             ->assertRedirect()->assertSessionHas('warning');
 
-        foreach ([$this->manager, $this->admin, $this->coordinator] as $user) {
+        foreach ([$this->manager, $this->coordinator] as $user) {
             $alert = Alert::where('user_id', $user->id)->where('type', 'sos')->first();
             $this->assertNotNull($alert, "{$user->role->value} is alerted");
             $this->assertStringContainsString('SOS from '.$this->field->name.' (ASD111) on '.$s->tracking_number.': Flat tyre, unsafe area', $alert->message);
             $this->assertSame($s->shipment_id, $alert->shipment_id);
         }
         $this->assertSame(0, Alert::where('user_id', $this->field->id)->count(), 'not the sender');
+        $this->assertSame(0, Alert::where('user_id', $this->admin->id)->count(), 'not the Super Admin, who has no part in deliveries');
 
         $this->assertStringContainsString('SOS sent: Flat tyre, unsafe area. Last location 14.58,121.06', $s->shipmentNotes()->value('body'));
         $this->assertDatabaseHas('activity_logs', ['action' => 'sos', 'user_id' => $this->field->id]);

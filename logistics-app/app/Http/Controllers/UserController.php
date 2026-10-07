@@ -12,25 +12,32 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
+/**
+ * Users & Roles. A Super Admin manages every account. Managers and Logistics Coordinators
+ * manage every account except Super Admins: they don't see them, can't change them, and
+ * can't make anyone a Super Admin.
+ */
 class UserController extends Controller
 {
     public function index(Request $request)
     {
         Gate::authorize('manage-users');
+        $roles = $this->assignableRoles($request->user());
 
         // Anything not recognised falls back to "no filter", so a bad link still shows the list.
         $sort = $request->query('sort') === 'za' ? 'za' : 'az';
         $role = Role::tryFrom((string) $request->query('role'));
+        $role = in_array($role, $roles, true) ? $role : null;
         $status = in_array($request->query('status'), ['active', 'inactive'], true) ? $request->query('status') : null;
 
         return view('users.index', [
-            'users' => User::query()
+            'users' => User::whereIn('role', array_column($roles, 'value'))
                 ->when($role, fn ($q) => $q->where('role', $role->value))
                 ->when($status, fn ($q) => $q->where('is_active', $status === 'active'))
                 ->orderBy('name', $sort === 'za' ? 'desc' : 'asc')
                 ->get(),
-            'total' => User::count(),
-            'roles' => Role::cases(),
+            'total' => User::whereIn('role', array_column($roles, 'value'))->count(),
+            'roles' => $roles,
             'sort' => $sort,
             'filterRole' => $role,
             'status' => $status,
@@ -39,9 +46,9 @@ class UserController extends Controller
 
     public function updateRole(Request $request, User $user)
     {
-        Gate::authorize('manage-users');
+        $this->authorizeManaging($request->user(), $user);
 
-        $data = $request->validate(['role' => ['required', Rule::enum(Role::class)]]);
+        $data = $request->validate(['role' => ['required', Rule::in(array_column($this->assignableRoles($request->user()), 'value'))]]);
         $newRole = Role::from($data['role']);
 
         if ($user->is($request->user())) {
@@ -70,7 +77,7 @@ class UserController extends Controller
     /** Driver or Truck / Cargo Helper, for a Field Personnel account. */
     public function updatePosition(Request $request, User $user)
     {
-        Gate::authorize('manage-users');
+        $this->authorizeManaging($request->user(), $user);
         abort_unless($user->role === Role::FieldPersonnel, 422, 'Only Field Personnel have a driver or helper position.');
 
         $data = $request->validate(['field_position' => ['required', Rule::in(array_keys(User::FIELD_POSITIONS))]]);
@@ -86,11 +93,11 @@ class UserController extends Controller
         return back()->with('status', "{$user->name} is now {$user->roleLabel()}.");
     }
 
-    public function create()
+    public function create(Request $request)
     {
         Gate::authorize('manage-users');
 
-        return view('users.edit', ['user' => new User, 'roles' => Role::cases()]);
+        return view('users.edit', ['user' => new User, 'roles' => $this->assignableRoles($request->user())]);
     }
 
     public function store(Request $request)
@@ -100,7 +107,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
-            'role' => ['required', Rule::enum(Role::class)],
+            'role' => ['required', Rule::in(array_column($this->assignableRoles($request->user()), 'value'))],
             'field_position' => ['required_if:role,'.Role::FieldPersonnel->value, 'nullable', Rule::in(array_keys(User::FIELD_POSITIONS))],
             'password' => ['required', 'confirmed', Password::min(8)->letters()->numbers()],
         ], [
@@ -124,9 +131,9 @@ class UserController extends Controller
         return redirect()->route('users.index')->with('status', "{$user->name} added as {$user->roleLabel()}.");
     }
 
-    public function edit(User $user)
+    public function edit(Request $request, User $user)
     {
-        Gate::authorize('manage-users');
+        $this->authorizeManaging($request->user(), $user);
 
         return view('users.edit', ['user' => $user]);
     }
@@ -134,7 +141,7 @@ class UserController extends Controller
     /** Name, email and (optionally) a new password for any user. Blank password = unchanged. */
     public function update(Request $request, User $user)
     {
-        Gate::authorize('manage-users');
+        $this->authorizeManaging($request->user(), $user);
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -183,7 +190,7 @@ class UserController extends Controller
 
     public function toggleActive(Request $request, User $user)
     {
-        Gate::authorize('manage-users');
+        $this->authorizeManaging($request->user(), $user);
 
         if ($user->is($request->user())) {
             return back()->with('error', 'You cannot deactivate your own account.');
@@ -196,6 +203,26 @@ class UserController extends Controller
         ActivityLog::record($user->is_active ? 'activated' : 'deactivated', ($user->is_active ? 'Activated' : 'Deactivated')." the account of {$user->name}", $user);
 
         return back()->with('status', $user->name.($user->is_active ? ' activated.' : ' deactivated.'));
+    }
+
+    /**
+     * The roles this person may give to an account, which are also the roles they may manage.
+     *
+     * @return list<Role>
+     */
+    private function assignableRoles(User $actor): array
+    {
+        return array_values(array_filter(
+            Role::cases(),
+            fn (Role $role) => $actor->isSuperAdmin() || $role !== Role::SuperAdmin,
+        ));
+    }
+
+    /** Stops anyone who isn't a Super Admin from opening or changing a Super Admin's account. */
+    private function authorizeManaging(User $actor, User $target): void
+    {
+        Gate::authorize('manage-users');
+        abort_unless($actor->isSuperAdmin() || ! $target->isSuperAdmin(), 403);
     }
 
     private function isLastActiveSuperAdmin(User $user): bool

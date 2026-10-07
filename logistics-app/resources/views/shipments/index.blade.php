@@ -70,7 +70,7 @@
         @endif
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <a class="btn" href="{{ route('shipments.print-list', array_filter(['q' => $search, 'status' => $status, 'period' => $period])) }}" target="_blank" rel="noopener">Print / PDF</a>
-        @if (auth()->user()->isSuperAdmin() || auth()->user()->hasRole('manager', 'logistics_coordinator'))
+        @if (auth()->user()->hasRole('manager', 'logistics_coordinator'))
           <a class="btn primary" href="{{ route('shipments.create') }}">+ New shipment</a>
         @endif
       </div>

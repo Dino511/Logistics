@@ -12,8 +12,7 @@ class ShipmentNoteController extends Controller
     /** Office staff, and Field Personnel on their own shipments, can post. Everyone can read. */
     public static function canPost($user, Shipment $shipment): bool
     {
-        return $user->isSuperAdmin()
-            || $user->hasRole('manager', 'logistics_coordinator')
+        return $user->hasRole('manager', 'logistics_coordinator')
             || ($user->hasRole('field_personnel') && $shipment->isAssignedToDriver($user->driver));
     }
 

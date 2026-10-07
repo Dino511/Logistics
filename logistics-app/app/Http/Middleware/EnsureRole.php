@@ -8,12 +8,15 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureRole
 {
-    /** Usage: ->middleware('role:super_admin,manager') */
+    /**
+     * Usage: ->middleware('role:manager,logistics_coordinator').
+     * Only the roles named pass. No role, Super Admin included, gets in automatically.
+     */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
         $user = $request->user();
 
-        abort_unless($user && ($user->isSuperAdmin() || $user->hasRole(...$roles)), 403);
+        abort_unless($user && $user->hasRole(...$roles), 403);
 
         return $next($request);
     }

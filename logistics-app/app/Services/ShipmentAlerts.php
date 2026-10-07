@@ -56,12 +56,11 @@ class ShipmentAlerts
         $this->send($userIds, $shipment, 'assigned', "New delivery for you: {$shipment->tracking_number} to {$shipment->destination_name}, {$shipment->destination_city}.", $actorId);
     }
 
-    /** A driver's SOS: every Manager and Super Admin, plus whoever is involved in the delivery. */
+    /** A driver's SOS: every Manager, plus whoever is involved in the delivery. */
     public function sos(User $from, ?Shipment $shipment, ?VehicleLocationPing $ping, ?string $message): void
     {
         $recipients = array_merge(
             $this->activeUserIds(Role::Manager),
-            $this->activeUserIds(Role::SuperAdmin),
             $shipment ? $this->involved($shipment) : [],
         );
 

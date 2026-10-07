@@ -132,7 +132,7 @@
     {{-- 1. Greeting, with this week's numbers --}}
     <section class="card fd-hello">
       <div>
-        <h2>{{ $greeting }}, {{ Str::before($user->name, ' ') ?: $user->name }}!</h2>
+        <h2>{{ $greeting }}, {{ Str::before($user->displayName(), ' ') ?: $user->displayName() }}!</h2>
         <p>
           {{ now()->translatedFormat('l, j F') }}
           @if ($driver)

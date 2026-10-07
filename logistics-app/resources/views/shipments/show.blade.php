@@ -136,7 +136,7 @@
 @section('content')
   @php
     $me = auth()->user();
-    $canManage = $me->isSuperAdmin() || $me->hasRole('manager', 'logistics_coordinator');
+    $canManage = $me->hasRole('manager', 'logistics_coordinator');
     $isAssigned = $me->hasRole('field_personnel') && $shipment->isAssignedToDriver($me->driver);
     $fieldOptions = $isAssigned ? $shipment->fieldNextStatuses() : [];
     $canShare = $isAssigned && in_array($shipment->status, \App\Http\Controllers\TrackingController::TRACKABLE_STATUSES, true);
@@ -388,7 +388,7 @@
           </section>
         @endif
 
-        {{-- Super Admin: change who takes this shipment while it isn't finished. --}}
+        {{-- Office staff: change who takes this shipment while it isn't finished. --}}
         @if ($crew)
           <section class="card sd-action" id="edit-assignment">
             <h2>{{ __('Edit assignment') }}</h2>

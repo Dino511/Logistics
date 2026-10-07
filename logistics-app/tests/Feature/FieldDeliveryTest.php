@@ -312,7 +312,9 @@ class FieldDeliveryTest extends TestCase
         $office = $this->user(Role::LogisticsCoordinator);
 
         // Shown to the office and to the assigned driver, on pages that have nothing to do with shipments.
-        $this->actingAs($office)->get('/emergency-contacts')->assertForbidden();
+        $this->actingAs($office)->get('/emergency-contacts')->assertOk()->assertSee('1 shipment is not delivered yet');
+        // Never to a Super Admin, who doesn't work with shipments.
+        $this->actingAs($this->user(Role::SuperAdmin))->get('/emergency-contacts')->assertOk()->assertDontSee('not delivered yet');
         $this->actingAs($this->user(Role::Manager))->get('/emergency-contacts')->assertOk()
             ->assertSee('1 shipment is not delivered yet')->assertSee($s->tracking_number)
             ->assertSee("/shipments/{$s->shipment_id}", false);

@@ -364,16 +364,16 @@ class ShipmentController extends Controller
 
         // Office roles see where the vehicle is, while it's on the road and the driver shares.
         $user = request()->user();
-        $live = ($user->isSuperAdmin() || $user->hasRole('manager', 'logistics_coordinator'))
+        $live = $user->hasRole('manager', 'logistics_coordinator')
             && in_array($shipment->status, TrackingController::TRACKABLE_STATUSES, true)
             // One per driver, so each truck of a split shipment shows.
             ? VehicleLocationPing::with(['driver', 'vehicle'])->whereIn('id', TrackingController::latestPingIds($shipment->shipment_id))->get()
             : collect();
 
-        // Super Admin can change who takes a shipment that isn't finished and wasn't split
+        // Office staff can change who takes a shipment that isn't finished and wasn't split
         // across several trucks (older shipments, from when loads could be split automatically).
         $crew = null;
-        if ($user->isSuperAdmin() && $this->crewEditable($shipment)) {
+        if ($user->hasRole('manager', 'logistics_coordinator') && $this->crewEditable($shipment)) {
             $crew = [
                 // The current crew stays listed even if it has since gone inactive or into the workshop.
                 'drivers' => Driver::where('status', 'active')->orWhere('id', $shipment->driver_id)->orderBy('name')->get(),
@@ -392,7 +392,7 @@ class ShipmentController extends Controller
         return in_array($shipment->status, Shipment::OPEN_STATUSES, true) && ! $shipment->allocations()->exists();
     }
 
-    /** Super Admin changing the driver, vehicle or helper of a shipment that isn't finished. */
+    /** Office staff changing the driver, vehicle or helper of a shipment that isn't finished. */
     public function updateCrew(Request $request, Shipment $shipment)
     {
         if (! $this->crewEditable($shipment)) {
@@ -626,7 +626,7 @@ class ShipmentController extends Controller
     public function collectPickup(Request $request, Shipment $shipment, ShipmentPickup $pickup)
     {
         $user = $request->user();
-        $isOffice = $user->isSuperAdmin() || $user->hasRole('manager', 'logistics_coordinator');
+        $isOffice = $user->hasRole('manager', 'logistics_coordinator');
         abort_unless($isOffice || $shipment->isAssignedToDriver($user->driver), 403);
         abort_unless((int) $pickup->shipment_id === (int) $shipment->shipment_id, 404);
 

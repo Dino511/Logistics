@@ -21,9 +21,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Gate::define('manage-users', fn (User $user) => $user->isSuperAdmin());
+        $office = fn (User $user) => $user->hasRole('manager', 'logistics_coordinator');
+
+        // Administration. Managers and Coordinators manage every account except Super Admins
+        // (UserController enforces that part); the Driver dashboard texts and Site Images
+        // stay with the Super Admin.
+        Gate::define('manage-users', fn (User $user) => $user->isSuperAdmin() || $office($user));
+        Gate::define('manage-site-contents', fn (User $user) => $user->isSuperAdmin());
         Gate::define('manage-site-images', fn (User $user) => $user->isSuperAdmin());
-        // Activity log history and printing: Super Admin and Manager only.
-        Gate::define('view-activity-logs', fn (User $user) => $user->isSuperAdmin() || $user->hasRole('manager'));
+        // Insights: the activity log, its print-out and export.
+        Gate::define('view-activity-logs', fn (User $user) => $user->isSuperAdmin());
     }
 }

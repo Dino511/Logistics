@@ -91,7 +91,7 @@ class DashboardNotesNavTest extends TestCase
         $this->shipment('SH-DONE', 'delivered', ['actual_delivery_at' => now()->subDay(), 'delivery_result' => 'on_time']);
 
         $response = $this->actingAs($this->manager)->get('/dashboard')->assertOk()->assertViewIs('dashboard')
-            ->assertSee('Needs attention')->assertSee('+ New shipment')->assertSee('Export CSV')->assertSee('Last 30 days');
+            ->assertSee('Needs attention')->assertSee('+ New shipment')->assertDontSee('Export CSV')->assertSee('Last 30 days');
 
         $attention = $response->viewData('attention')->pluck('tracking_number')->all();
         $this->assertEqualsCanonicalizing(['SH-LATE', 'SH-OVERDUE'], $attention);
@@ -153,11 +153,54 @@ class DashboardNotesNavTest extends TestCase
     {
         $html = $this->actingAs($this->user(Role::SuperAdmin))->get('/users')->getContent();
 
-        $this->assertSame(4, substr_count($html, 'class="nav-label nav-toggle"'));
+        // Super Admin: Insights and Administration.
+        $this->assertSame(2, substr_count($html, 'class="nav-label nav-toggle"'));
         $this->assertMatchesRegularExpression('/nav-group current" data-group="admin"/', $html, 'the section with the current page is marked open');
         $this->assertStringContainsString('aria-current="page"', $html);
 
         // One section only (Field Personnel): no toggle needed.
         $this->assertStringContainsString('nav-toggle" aria-expanded="true" aria-controls="nav-operations"  hidden', $this->actingAs($this->field)->get('/shipments')->getContent());
+    }
+
+    public function test_each_role_gets_only_its_own_menu_sections(): void
+    {
+        $groups = function (User $user, string $page) {
+            preg_match_all('/data-group="([a-z]+)"/', $this->actingAs($user)->get($page)->assertOk()->getContent(), $m);
+
+            return array_values(array_unique($m[1]));
+        };
+
+        $this->assertSame(['insights', 'admin'], $groups($this->user(Role::SuperAdmin), '/users'));
+        $this->assertSame(['operations', 'fleet', 'admin'], $groups($this->user(Role::Manager), '/shipments'));
+        $this->assertSame(['operations', 'fleet', 'admin'], $groups($this->user(Role::LogisticsCoordinator), '/shipments'));
+        $this->assertSame(['operations'], $groups($this->field, '/shipments'));
+
+        // Driver dashboard and Site Images are the Administration pages the office doesn't get.
+        $this->actingAs($this->user(Role::Manager))->get('/users')->assertOk()
+            ->assertSee('Emergency contacts')->assertDontSee('Driver dashboard')->assertDontSee('Site Images')
+            ->assertSee('id="bellMenu"', false);
+        // No alert bell for a Super Admin.
+        $this->actingAs($this->user(Role::SuperAdmin))->get('/users')->assertOk()
+            ->assertSee('Driver dashboard')->assertSee('Site Images')->assertDontSee('id="bellMenu"', false);
+    }
+
+    public function test_a_super_admin_is_kept_out_of_operations_and_fleet(): void
+    {
+        $admin = $this->user(Role::SuperAdmin);
+
+        $this->actingAs($admin)->get('/dashboard')->assertRedirect('/reports/activity-logs');
+        foreach (['/shipments', '/shipments/create', '/calendar', '/tracking', '/vehicles', '/drivers', '/dashboard/export'] as $page) {
+            $this->actingAs($admin)->get($page)->assertForbidden();
+        }
+        foreach (['/reports/activity-logs', '/users', '/emergency-contacts'] as $page) {
+            $this->actingAs($admin)->get($page)->assertOk();
+        }
+
+        // Reports, Driver dashboard and Site Images are the Super Admin's alone.
+        foreach ([Role::Manager, Role::LogisticsCoordinator, Role::FieldPersonnel] as $role) {
+            $this->actingAs($this->user($role))->get('/reports/activity-logs')->assertForbidden();
+            $this->actingAs($this->user($role))->get('/site-images')->assertForbidden();
+            $this->actingAs($this->user($role))->get('/driver-dashboard')->assertForbidden();
+        }
     }
 }

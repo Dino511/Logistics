@@ -23,6 +23,11 @@ class OpenShipments
      */
     public function reminderFor(User $user): ?array
     {
+        // A Super Admin doesn't work with shipments, so has nothing to be reminded of.
+        if ($user->isSuperAdmin()) {
+            return null;
+        }
+
         try {
             $query = Shipment::whereIn('status', Shipment::OPEN_STATUSES);
             if ($user->hasRole('field_personnel')) {

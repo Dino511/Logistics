@@ -190,13 +190,15 @@
     <a class="logo {{ request()->routeIs('dashboard') ? 'active' : '' }}" href="{{ route('dashboard') }}" aria-label="Logistics – go to dashboard">🚚 Logistics</a>
     @php
       $u = auth()->user();
-      $isOffice = $u->isSuperAdmin() || $u->hasRole('manager', 'logistics_coordinator');
-      $isManager = $u->isSuperAdmin() || $u->hasRole('manager');
+      $isSuperAdmin = $u->isSuperAdmin();
+      $isOffice = $u->hasRole('manager', 'logistics_coordinator');
     @endphp
     @php
-      // Menu sections and links, each shown only to the roles that can open it.
+      // Menu sections and links, each shown only to the roles that can open it:
+      // Super Admin: Insights and Administration. Manager and Coordinator: Operations, Fleet
+      // and Administration without Driver dashboard and Site Images. Field Personnel: their part of Operations.
       $navGroups = array_filter([
-        'operations' => ['label' => __('Operations'), 'links' => array_filter([
+        'operations' => $isSuperAdmin ? null : ['label' => __('Operations'), 'links' => array_filter([
           ['shipments.*', route('shipments.index'), __('Shipments')],
           ['calendar.*', route('calendar.index'), __('Calendar')],
           $isOffice ? ['tracking.*', route('tracking.index'), __('Live tracking')] : null,
@@ -205,15 +207,14 @@
           ['vehicles.*', route('vehicles.index'), __('Vehicles')],
           [['drivers.*', 'helpers.*'], route('drivers.index'), __('Drivers & helpers')],
         ]] : null,
-        'insights' => $isManager ? ['label' => __('Insights'), 'links' => [
+        'insights' => $isSuperAdmin ? ['label' => __('Insights'), 'links' => [
           ['reports.*', route('reports.activity'), __('Reports')],
         ]] : null,
-        // Setup pages. Managers see only Emergency contacts here.
-        'admin' => $isManager ? ['label' => __('Administration'), 'links' => array_filter([
-          $u->isSuperAdmin() ? ['users.*', route('users.index'), __('Users & Roles')] : null,
+        'admin' => $isSuperAdmin || $isOffice ? ['label' => __('Administration'), 'links' => array_filter([
+          ['users.*', route('users.index'), __('Users & Roles')],
           ['emergency-contacts.*', route('emergency-contacts.index'), __('Emergency contacts')],
-          $u->isSuperAdmin() ? ['site-contents.*', route('site-contents.index'), __('Driver dashboard')] : null,
-          $u->isSuperAdmin() ? ['site-images.*', route('site-images.index'), __('Site Images')] : null,
+          $isSuperAdmin ? ['site-contents.*', route('site-contents.index'), __('Driver dashboard')] : null,
+          $isSuperAdmin ? ['site-images.*', route('site-images.index'), __('Site Images')] : null,
         ])] : null,
       ]);
     @endphp
@@ -263,6 +264,7 @@
     <header>
       <h1>@yield('heading')</h1>
       <div class="header-actions">
+      @unless (auth()->user()->isSuperAdmin())
       <div class="bell-menu" id="bellMenu">
         <button type="button" class="bell-btn" id="bellTrigger" aria-haspopup="true" aria-expanded="false" aria-controls="bellPanel" aria-label="{{ __('Alerts') }}">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -276,6 +278,7 @@
           <ul class="bell-list" id="bellList"><li class="bell-empty">{{ __('Loading…') }}</li></ul>
         </div>
       </div>
+      @endunless
       <div class="user-menu" id="userMenu">
         <button type="button" class="user-trigger" id="userTrigger" aria-haspopup="menu" aria-expanded="false" aria-controls="userDropdown">
           <span class="avatar">
@@ -286,7 +289,7 @@
             @endif
           </span>
           <span class="user-info">
-            <strong>{{ auth()->user()->name }}</strong>
+            <strong>{{ auth()->user()->displayName() }}</strong>
             <small>{{ auth()->user()->roleLabel(true) }}</small>
           </span>
           <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
@@ -480,6 +483,7 @@
     const POLL_MS = 10000;
     const T = {{ Js::from(['sosUrgent' => __('SOS – urgent'), 'newAlert' => __('New alert'), 'alerts' => __('Alerts'), 'alertsUnread' => __('Alerts, :count unread'), 'noAlerts' => __('No alerts yet.')]) }};
     const bellMenu = document.getElementById('bellMenu');
+    if (!bellMenu) return; // no bell for this role
     const bellBtn = document.getElementById('bellTrigger');
     const panel = document.getElementById('bellPanel');
     const list = document.getElementById('bellList');

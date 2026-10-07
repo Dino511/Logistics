@@ -16,7 +16,7 @@
 @endpush
 
 @section('content')
-  @php $isManager = auth()->user()->isSuperAdmin() || auth()->user()->hasRole('manager'); @endphp
+  @php $isManager = auth()->user()->hasRole('manager'); @endphp
   <div class="card">
     <div class="toolbar">
       <p>{{ $vehicles->count() }} {{ Str::plural('vehicle', $vehicles->count()) }}</p>

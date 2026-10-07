@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Alert;
 use App\Models\Driver;
+use App\Models\Helper;
 use App\Models\Shipment;
 use App\Models\SiteContent;
 use App\Models\User;
@@ -137,6 +138,27 @@ class FieldDashboardTest extends TestCase
         $this->assertSame($admin->id, $section->fresh()->updated_by);
     }
 
+    public function test_an_account_linked_to_a_driver_or_helper_goes_by_that_persons_first_name(): void
+    {
+        // The account is called "Driver 1"; the driver it belongs to is karl dumanon.
+        $this->field->forceFill(['name' => 'Driver 1'])->save();
+        $this->driver->update(['name' => 'karl dumanon']);
+
+        $this->actingAs($this->field->fresh())->get('/dashboard')->assertOk()
+            ->assertSee('<strong>Karl</strong>', false)->assertSee(', Karl!')->assertDontSee('<strong>Driver 1</strong>', false);
+
+        // A helper account works the same way.
+        $helperUser = $this->user(Role::FieldPersonnel);
+        $helperUser->forceFill(['name' => 'Helper 1', 'field_position' => 'helper'])->save();
+        Helper::create(['name' => 'dodong', 'status' => 'active', 'user_id' => $helperUser->id]);
+        $this->assertSame('Dodong', $helperUser->fresh()->displayName());
+
+        // No one linked, or not Field Personnel: the account's own name.
+        $this->assertSame('Maria Manager', $this->user(Role::Manager)->forceFill(['name' => 'Maria Manager'])->displayName());
+        $loose = $this->user(Role::FieldPersonnel);
+        $this->assertSame($loose->name, $loose->displayName());
+    }
+
     public function test_the_greeting_and_page_follow_the_chosen_language(): void
     {
         $this->travelTo(today()->setTime(9, 0));
@@ -166,11 +188,16 @@ class FieldDashboardTest extends TestCase
     {
         $section = SiteContent::firstOrFail();
 
+        $title = $section->title;
+
         foreach ([Role::Manager, Role::LogisticsCoordinator, Role::FieldPersonnel] as $role) {
             $user = $this->user($role);
             $this->actingAs($user)->get('/driver-dashboard')->assertForbidden();
             $this->actingAs($user)->put("/driver-dashboard/{$section->id}", ['title' => 'X', 'body' => 'Y'])->assertForbidden();
         }
+        $this->assertSame($title, $section->fresh()->title);
+
+        $this->actingAs($this->user(Role::SuperAdmin))->get('/driver-dashboard')->assertOk();
     }
 
     public function test_the_dashboard_explains_what_each_delivery_status_means(): void

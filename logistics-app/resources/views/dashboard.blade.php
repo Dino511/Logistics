@@ -68,7 +68,6 @@
       <a href="{{ route('dashboard', ['range' => 30]) }}" aria-current="{{ $range === 30 ? 'true' : 'false' }}">Last 30 days</a>
     </nav>
     <div class="db-actions">
-      <a class="btn" href="{{ route('dashboard.export', ['range' => $range]) }}">Export CSV</a>
       <a class="btn" href="{{ route('tracking.index') }}">📍 Live tracking</a>
       <a class="btn primary" href="{{ route('shipments.create') }}">+ New shipment</a>
     </div>

@@ -89,18 +89,66 @@ class UserEditTest extends TestCase
         $this->assertDatabaseMissing('users', ['email' => 'x@logistics.test']);
     }
 
-    public function test_other_roles_cannot_add_users(): void
+    public function test_field_personnel_cannot_add_users_and_the_office_cannot_add_super_admins(): void
     {
-        foreach ([Role::Manager, Role::LogisticsCoordinator, Role::FieldPersonnel] as $role) {
+        $sneaky = [
+            'name' => 'Sneaky', 'email' => 'sneaky@logistics.test', 'role' => Role::SuperAdmin->value,
+            'password' => 'Welcome123', 'password_confirmation' => 'Welcome123',
+        ];
+
+        $field = $this->user(Role::FieldPersonnel);
+        $this->actingAs($field)->get('/users/create')->assertForbidden();
+        $this->actingAs($field)->post('/users', $sneaky)->assertForbidden();
+
+        foreach ([Role::Manager, Role::LogisticsCoordinator] as $role) {
             $user = $this->user($role);
-            $this->actingAs($user)->get('/users/create')->assertForbidden();
-            $this->actingAs($user)->post('/users', [
-                'name' => 'Sneaky', 'email' => 'sneaky@logistics.test', 'role' => Role::SuperAdmin->value,
-                'password' => 'Welcome123', 'password_confirmation' => 'Welcome123',
-            ])->assertForbidden();
+            // The form opens, without Super Admin among the roles on offer.
+            $this->actingAs($user)->get('/users/create')->assertOk()
+                ->assertSee('value="manager"', false)->assertDontSee('value="super_admin"', false);
+            $this->actingAs($user)->post('/users', $sneaky)->assertSessionHasErrors('role');
+        }
+        $this->assertDatabaseMissing('users', ['email' => 'sneaky@logistics.test']);
+
+        $this->actingAs($this->user(Role::Manager))->post('/users', ['role' => Role::LogisticsCoordinator->value, 'email' => 'new@logistics.test'] + $sneaky)
+            ->assertRedirect('/users')->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('users', ['email' => 'new@logistics.test', 'role' => 'logistics_coordinator']);
+    }
+
+    public function test_managers_and_coordinators_manage_every_account_except_super_admins(): void
+    {
+        $boss = $this->user(Role::SuperAdmin);
+        $colleague = $this->user(Role::Manager);
+        $driver = $this->user(Role::FieldPersonnel);
+        $hash = $boss->password;
+
+        foreach ([Role::Manager, Role::LogisticsCoordinator] as $role) {
+            $me = $this->user($role);
+
+            // The list leaves Super Admins out, and so does its role filter.
+            $this->actingAs($me)->get('/users')->assertOk()
+                ->assertSee($colleague->email)->assertSee($driver->email)->assertDontSee($boss->email)
+                ->assertDontSee('value="super_admin"', false);
+            $this->actingAs($me)->get('/users?role=super_admin')->assertOk()->assertSee($driver->email)->assertDontSee($boss->email);
+
+            // A Super Admin's account can't be opened or changed in any way.
+            $this->actingAs($me)->get("/users/{$boss->id}/edit")->assertForbidden();
+            $this->actingAs($me)->put("/users/{$boss->id}", ['name' => 'Hacked', 'email' => $boss->email, 'password' => 'NewPass123', 'password_confirmation' => 'NewPass123'])->assertForbidden();
+            $this->actingAs($me)->patch("/users/{$boss->id}/role", ['role' => 'field_personnel'])->assertForbidden();
+            $this->actingAs($me)->patch("/users/{$boss->id}/active")->assertForbidden();
+
+            // Nobody can be promoted to Super Admin.
+            $this->actingAs($me)->patch("/users/{$driver->id}/role", ['role' => 'super_admin'])->assertSessionHasErrors('role');
+
+            // Everyone else is theirs to manage.
+            $this->actingAs($me)->get("/users/{$colleague->id}/edit")->assertOk();
+            $this->actingAs($me)->patch("/users/{$driver->id}/active")->assertSessionHas('status');
+            $this->actingAs($me)->patch("/users/{$driver->id}/active")->assertSessionHas('status');
         }
 
-        $this->assertDatabaseMissing('users', ['email' => 'sneaky@logistics.test']);
+        $boss->refresh();
+        $this->assertSame([Role::SuperAdmin, true, $hash], [$boss->role, (bool) $boss->is_active, $boss->password]);
+        $this->assertSame(Role::FieldPersonnel, $driver->fresh()->role);
+        $this->assertTrue((bool) $driver->fresh()->is_active);
     }
 
     public function test_field_personnel_are_added_as_driver_or_helper(): void
@@ -170,18 +218,16 @@ class UserEditTest extends TestCase
         $this->assertStringContainsString('Truck / Cargo Helper', $html);
     }
 
-    public function test_other_roles_cannot_edit_users(): void
+    public function test_field_personnel_cannot_edit_users(): void
     {
         $target = $this->user(Role::FieldPersonnel);
         $hash = $target->password;
 
-        foreach ([Role::Manager, Role::LogisticsCoordinator, Role::FieldPersonnel] as $role) {
-            $user = $this->user($role);
-            $this->actingAs($user)->get("/users/{$target->id}/edit")->assertForbidden();
-            $this->actingAs($user)->put("/users/{$target->id}", [
-                'name' => 'Hacked', 'email' => $target->email, 'password' => 'NewPass123', 'password_confirmation' => 'NewPass123',
-            ])->assertForbidden();
-        }
+        $user = $this->user(Role::FieldPersonnel);
+        $this->actingAs($user)->get("/users/{$target->id}/edit")->assertForbidden();
+        $this->actingAs($user)->put("/users/{$target->id}", [
+            'name' => 'Hacked', 'email' => $target->email, 'password' => 'NewPass123', 'password_confirmation' => 'NewPass123',
+        ])->assertForbidden();
 
         $this->assertSame($hash, $target->fresh()->password);
         $this->assertNotSame('Hacked', $target->fresh()->name);

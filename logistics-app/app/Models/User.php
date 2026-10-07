@@ -81,6 +81,29 @@ class User extends Authenticatable
         return $this->hasOne(Driver::class, 'user_id');
     }
 
+    /** The truck / cargo helper record this account signs in as (Field Personnel). */
+    public function helper(): HasOne
+    {
+        return $this->hasOne(Helper::class, 'user_id');
+    }
+
+    /**
+     * What to call this person on screen. An account linked to a driver or helper record
+     * (often named something like "Driver 1") goes by that person's first name instead.
+     */
+    public function displayName(): string
+    {
+        if ($this->role === Role::FieldPersonnel) {
+            $person = $this->driver ?? $this->helper;
+            $first = Str::of((string) $person?->name)->trim()->before(' ')->ucfirst()->toString();
+            if ($first !== '') {
+                return $first;
+            }
+        }
+
+        return $this->name;
+    }
+
     public function avatarUrl(): ?string
     {
         return $this->avatar?->url;

@@ -297,7 +297,7 @@ class StockReservationTest extends TestCase
         $this->assertNull(Shipment::firstOrFail()->items->first()->pickup_sequence);
     }
 
-    public function test_only_a_super_admin_can_change_the_driver_and_vehicle_of_an_unfinished_shipment(): void
+    public function test_only_office_staff_can_change_the_driver_and_vehicle_of_an_unfinished_shipment(): void
     {
         $this->createShipment(1)->assertSessionHasNoErrors();
         $this->createShipment(1)->assertSessionHasNoErrors();
@@ -305,9 +305,13 @@ class StockReservationTest extends TestCase
         $truck = DB::table('vehicles')->insertGetId(['plate_number' => 'NEW 5678', 'status' => 'available']);
         $driver = DB::table('drivers')->insertGetId(['name' => 'Nina New', 'status' => 'active']);
         $crew = ['driver_id' => $driver, 'vehicle_id' => $truck];
-        $admin = $this->user(Role::SuperAdmin);
+        $admin = $this->user(Role::Manager);
 
-        $this->actingAs($this->coordinator)->patch("/shipments/{$first->shipment_id}/crew", $crew)->assertForbidden();
+        foreach ([Role::SuperAdmin, Role::FieldPersonnel] as $role) {
+            $this->actingAs($this->user($role))->patch("/shipments/{$first->shipment_id}/crew", $crew)->assertForbidden();
+        }
+        // The form is offered to Managers and Coordinators alike.
+        $this->actingAs($this->coordinator)->get("/shipments/{$first->shipment_id}")->assertOk()->assertSee("/shipments/{$first->shipment_id}/crew", false);
 
         // Both are still required, and a crew out on another shipment is refused.
         $this->actingAs($admin)->patch("/shipments/{$first->shipment_id}/crew", ['driver_id' => $driver])->assertSessionHasErrors('vehicle_id');

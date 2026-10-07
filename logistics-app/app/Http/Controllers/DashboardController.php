@@ -20,6 +20,11 @@ class DashboardController extends Controller
 {
     public function __invoke(Request $request)
     {
+        // A Super Admin looks after accounts and the audit trail, not shipments: their home is Reports.
+        if ($request->user()->isSuperAdmin()) {
+            return redirect()->route('reports.activity');
+        }
+
         // Field Personnel get their own dashboard: their deliveries and guidance, not company analytics.
         if ($request->user()->hasRole('field_personnel')) {
             return $this->fieldDashboard($request->user());
