@@ -8,6 +8,7 @@ use App\Models\Shipment;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -343,36 +344,50 @@ class FieldDeliveryTest extends TestCase
             ->assertDontSee("/shipments/{$done->shipment_id}\"", false);
     }
 
-    public function test_the_list_can_be_filtered_by_scheduled_month_and_year(): void
+    public function test_the_list_can_be_filtered_to_this_week_month_or_year_from_one_dropdown(): void
     {
-        $oct26 = $this->shipment('delivered');
-        $oct26->update(['scheduled_delivery_at' => '2026-10-15 09:00:00']);
-        $nov26 = $this->shipment('delivered');
-        $nov26->update(['scheduled_delivery_at' => '2026-11-02 09:00:00']);
-        $oct25 = $this->shipment('delivered');
-        $oct25->update(['scheduled_delivery_at' => '2025-10-20 09:00:00']);
+        Carbon::setTestNow('2026-10-07 09:00:00'); // a Wednesday; its week is Sun Oct 4 to Sat Oct 10
+
+        $make = function (string $when) {
+            $s = $this->shipment('delivered');
+            $s->update(['scheduled_delivery_at' => $when]);
+
+            return $s->shipment_id;
+        };
+        $thisWeek = $make('2026-10-09 14:00:00');
+        $sunday = $make('2026-10-04 00:30:00');     // first minutes of this week
+        $saturday = $make('2026-10-10 23:30:00');   // last minutes of this week
+        $laterThisMonth = $make('2026-10-12 09:00:00');
+        $lastWeek = $make('2026-10-03 23:00:00');   // last hour of last week, still this month
+        $november = $make('2026-11-02 09:00:00');
+        $lastYear = $make('2025-10-20 09:00:00');
         $manager = $this->user(Role::Manager);
 
         $shown = fn (string $query) => $this->actingAs($manager)->get('/shipments'.$query)->assertOk()
             ->viewData('shipments')->pluck('shipment_id')->sort()->values()->all();
+        $all = [$thisWeek, $sunday, $saturday, $laterThisMonth, $lastWeek, $november, $lastYear];
 
-        $this->assertSame([$oct26->shipment_id, $nov26->shipment_id, $oct25->shipment_id], $shown(''));
-        $this->assertSame([$oct26->shipment_id], $shown('?month=10&year=2026'));
-        $this->assertSame([$oct26->shipment_id, $nov26->shipment_id], $shown('?year=2026'));
-        // A month without a year means that month of every year.
-        $this->assertSame([$oct26->shipment_id, $oct25->shipment_id], $shown('?month=10'));
-        $this->assertSame([], $shown('?month=12&year=2026'));
-        // Nonsense values are ignored instead of failing.
-        $this->assertSame([$oct26->shipment_id, $nov26->shipment_id, $oct25->shipment_id], $shown('?month=13&year=abc'));
+        $this->assertSame($all, $shown(''));
+        $this->assertSame([$thisWeek, $sunday, $saturday], $shown('?period=weekly'));
+        $this->assertSame([$thisWeek, $sunday, $saturday, $laterThisMonth, $lastWeek], $shown('?period=monthly'));
+        $this->assertSame([$thisWeek, $sunday, $saturday, $laterThisMonth, $lastWeek, $november], $shown('?period=yearly'));
+        // Anything else, including the older style of value, is ignored instead of failing.
+        $this->assertSame($all, $shown('?period=fortnight'));
+        $this->assertSame($all, $shown('?period=month-2026-10'));
+        $this->assertSame($all, $shown('?month=10&year=2026'));
 
-        // The choice shows as selected, every year with a shipment is offered, and the
-        // filters ride along to the printable list.
-        $this->actingAs($manager)->get('/shipments?month=10&year=2026')
-            ->assertSee('<option value="10" selected>October</option>', false)
-            ->assertSee('<option value="2026" selected>2026</option>', false)
-            ->assertSee('<option value="2025"', false)
-            ->assertSee('month=10&amp;year=2026', false);
-        $this->actingAs($manager)->get('/shipments/print?month=10&year=2026')->assertOk()
-            ->assertSee('Scheduled: October 2026')->assertSee('1 shipment');
+        // One dropdown with just the three choices; the choice shows as selected and
+        // rides along to the printable list.
+        $this->actingAs($manager)->get('/shipments?period=weekly')
+            ->assertSee('<option value="weekly" selected>Weekly</option>', false)
+            ->assertSee('<option value="monthly" >Monthly</option>', false)
+            ->assertSee('<option value="yearly" >Yearly</option>', false)
+            ->assertDontSee('<optgroup', false)
+            ->assertDontSee('name="month"', false)->assertDontSee('name="year"', false)
+            ->assertSee('period=weekly', false);
+        $this->actingAs($manager)->get('/shipments/print?period=weekly')->assertOk()
+            ->assertSee('Scheduled: This week (Oct 4 – Oct 10, 2026)')->assertSee('3 shipments');
+        $this->actingAs($manager)->get('/shipments/print?period=monthly')->assertOk()->assertSee('Scheduled: This month (October 2026)');
+        $this->actingAs($manager)->get('/shipments/print?period=yearly')->assertOk()->assertSee('Scheduled: This year (2026)');
     }
 }

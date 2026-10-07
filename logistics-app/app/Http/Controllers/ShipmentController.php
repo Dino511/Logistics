@@ -16,8 +16,10 @@ use App\Services\CrewAvailability;
 use App\Services\Geocoder;
 use App\Services\ShipmentAlerts;
 use App\Services\StockReservations;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -55,9 +57,8 @@ class ShipmentController extends Controller
             'isLinkedDriver' => (bool) $user->driver,
             'status' => $filters['status'],
             'search' => $filters['search'],
-            'month' => $filters['month'],
-            'year' => $filters['year'],
-            'years' => $this->scheduledYears(),
+            'period' => $filters['period'],
+            'periods' => $this->periodOptions(),
         ]);
     }
 
@@ -466,8 +467,8 @@ class ShipmentController extends Controller
             'limit' => self::PRINT_LIMIT,
             'status' => $filters['status'],
             'search' => $filters['search'],
-            'month' => $filters['month'],
-            'year' => $filters['year'],
+            'period' => $filters['period'],
+            'periodLabel' => $this->periodLabel($filters['period']),
         ]);
     }
 
@@ -480,40 +481,63 @@ class ShipmentController extends Controller
     private function listFilters(Request $request): array
     {
         $status = $request->query('status');
-        $month = (int) $request->query('month');
-        $year = (int) $request->query('year');
+        $period = $this->periodRange((string) $request->query('period'));
 
         return [
             'status' => $status === 'open' || in_array($status, Shipment::STATUSES, true) ? $status : null,
             'search' => trim((string) $request->query('q')),
-            'month' => $month >= 1 && $month <= 12 ? $month : null,
-            'year' => $year >= 2000 && $year <= 2100 ? $year : null,
+            'period' => $period ? (string) $request->query('period') : null,
+            'range' => $period,
         ];
     }
 
-    /** Years to offer in the list's Year filter: every year with a shipment, plus this one. */
-    private function scheduledYears(): array
+    /**
+     * The dates a "period" choice covers, by scheduled delivery: the current week
+     * ("weekly", Sunday to Saturday like the calendar page), month ("monthly") or year
+     * ("yearly").
+     *
+     * @return array{0: Carbon, 1: Carbon}|null null when the value isn't one of those
+     */
+    private function periodRange(string $period): ?array
     {
-        $first = Shipment::min('scheduled_delivery_at');
-        $last = Shipment::max('scheduled_delivery_at');
-        $from = min(now()->year, $first ? (int) substr((string) $first, 0, 4) : now()->year);
-        $to = max(now()->year, $last ? (int) substr((string) $last, 0, 4) : now()->year);
-
-        return range($to, $from);
+        return match ($period) {
+            'weekly' => [today()->startOfWeek(CarbonInterface::SUNDAY), today()->endOfWeek(CarbonInterface::SATURDAY)],
+            'monthly' => [today()->startOfMonth(), today()->endOfMonth()],
+            'yearly' => [today()->startOfYear(), today()->endOfYear()],
+            default => null,
+        };
     }
 
-    /** Shipments matching the list page's search, status, month and year filters, newest first. */
+    /** What the list's date dropdown offers: value => label. */
+    private function periodOptions(): array
+    {
+        return ['weekly' => 'Weekly', 'monthly' => 'Monthly', 'yearly' => 'Yearly'];
+    }
+
+    /** How a period choice reads in words on the printed list, with the dates it covers. */
+    private function periodLabel(?string $period): ?string
+    {
+        $range = $period ? $this->periodRange($period) : null;
+
+        return match (true) {
+            $range === null => null,
+            $period === 'weekly' => 'This week ('.$range[0]->format('M j').' – '.$range[1]->format('M j, Y').')',
+            $period === 'monthly' => 'This month ('.$range[0]->format('F Y').')',
+            default => 'This year ('.$range[0]->format('Y').')',
+        };
+    }
+
+    /** Shipments matching the list page's search, status and date filters, newest first. */
     private function listQuery(array $filters)
     {
-        ['status' => $status, 'search' => $search, 'month' => $month, 'year' => $year] = $filters;
+        ['status' => $status, 'search' => $search, 'range' => $range] = $filters;
 
         return Shipment::query()
             // "open" is every status that isn't finished yet (the reminder banner links here).
             ->when($status === 'open', fn ($q) => $q->whereIn('status', Shipment::OPEN_STATUSES))
             ->when($status && $status !== 'open', fn ($q) => $q->where('status', $status))
-            // By scheduled delivery date: a year, a month, or both ("every October" works too).
-            ->when($year, fn ($q) => $q->whereYear('scheduled_delivery_at', $year))
-            ->when($month, fn ($q) => $q->whereMonth('scheduled_delivery_at', $month))
+            // By scheduled delivery date: the week, month or year chosen.
+            ->when($range, fn ($q) => $q->whereBetween('scheduled_delivery_at', $range))
             ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('tracking_number', 'like', "%{$search}%")
                 ->orWhere('destination_name', 'like', "%{$search}%")
