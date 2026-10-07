@@ -31,7 +31,7 @@
 </head>
 <body>
   <div class="bar">
-    <a href="{{ route('shipments.index', array_filter(['q' => $search, 'status' => $status])) }}">Back</a>
+    <a href="{{ route('shipments.index', array_filter(['q' => $search, 'status' => $status, 'month' => $month, 'year' => $year])) }}">Back</a>
     <button type="button" class="primary" onclick="window.print()">Print / Save as PDF</button>
   </div>
 
@@ -42,6 +42,7 @@
       $applied = collect([
         $status ? 'Status: '.($status === 'open' ? 'Not delivered yet' : \App\Models\Shipment::label($status)) : null,
         $search !== '' ? 'Search: “'.$search.'”' : null,
+        $month || $year ? 'Scheduled: '.trim(($month ? \Carbon\Carbon::create(2000, $month, 1)->format('F') : '').' '.($year ?: '')) : null,
       ])->filter();
     @endphp
     Filters: {{ $applied->isEmpty() ? 'none (all shipments)' : $applied->join(' · ') }}<br>

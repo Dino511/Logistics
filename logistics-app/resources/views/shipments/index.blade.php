@@ -56,10 +56,26 @@
             <option value="{{ $s }}" @selected($status === $s)>{{ \App\Models\Shipment::label($s) }}</option>
           @endforeach
         </select>
+        {{-- By scheduled delivery date. Either one can be used alone. --}}
+        <select name="month" aria-label="Filter by month" onchange="this.form.submit()">
+          <option value="">All months</option>
+          @foreach (range(1, 12) as $m)
+            <option value="{{ $m }}" @selected($month === $m)>{{ \Carbon\Carbon::create(2000, $m, 1)->format('F') }}</option>
+          @endforeach
+        </select>
+        <select name="year" aria-label="Filter by year" onchange="this.form.submit()">
+          <option value="">All years</option>
+          @foreach ($years as $y)
+            <option value="{{ $y }}" @selected($year === $y)>{{ $y }}</option>
+          @endforeach
+        </select>
         <button type="submit" class="btn sm">Search</button>
       </form>
+        @if ($search !== '' || $status || $month || $year)
+          <a class="btn sm" href="{{ route('shipments.index') }}">Clear</a>
+        @endif
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        <a class="btn" href="{{ route('shipments.print-list', array_filter(['q' => $search, 'status' => $status])) }}" target="_blank" rel="noopener">Print / PDF</a>
+        <a class="btn" href="{{ route('shipments.print-list', array_filter(['q' => $search, 'status' => $status, 'month' => $month, 'year' => $year])) }}" target="_blank" rel="noopener">Print / PDF</a>
         @if (auth()->user()->isSuperAdmin() || auth()->user()->hasRole('manager', 'logistics_coordinator'))
           <a class="btn primary" href="{{ route('shipments.create') }}">+ New shipment</a>
         @endif

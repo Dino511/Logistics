@@ -78,6 +78,7 @@
   @media (max-width:640px) { .sd-stop-list li { flex-wrap:wrap; } .sd-stop-actions { width:100%; padding-left:42px; } }
   .sd-facts dt { font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
   .sd-facts dd { margin:0; font-weight:600; font-size:.92rem; }
+  .sd-fact-sub { display:block; margin-top:2px; font-weight:400; font-size:.8rem; color:var(--muted); }
   .sd-facts .call-link { font-size:.82rem; margin-left:4px; }
   .sd-instructions { margin:14px 0 0; padding:10px 12px; border-radius:8px; background:var(--hover); font-size:.88rem; }
 
@@ -140,9 +141,8 @@
     $fieldOptions = $isAssigned ? $shipment->fieldNextStatuses() : [];
     $canShare = $isAssigned && in_array($shipment->status, \App\Http\Controllers\TrackingController::TRACKABLE_STATUSES, true);
     $officeCanUpdate = $canManage && count($shipment->allowedNextStatuses());
-    $canDispatch = $canManage && in_array($shipment->status, ['pending', 'ready_for_pickup'], true);
     $hasProof = $shipment->proof_photo_path || $shipment->received_by;
-    $hasActions = $fieldOptions || $canShare || $officeCanUpdate || $canDispatch || $hasProof;
+    $hasActions = $fieldOptions || $canShare || $officeCanUpdate || $hasProof || $crew;
     $units = $shipment->items->sum('quantity');
     $place = fn ($city, $province, $postal) => collect([$city, $province, $postal])->filter()->join(', ');
   @endphp
@@ -192,7 +192,15 @@
           @endif
         </dd>
       </div>
-      <div><dt>{{ __('Vehicle') }}</dt><dd>{{ $shipment->vehicle?->plate_number ?? __('Unassigned') }}</dd></div>
+      <div>
+        <dt>{{ __('Vehicle') }}</dt>
+        <dd>{{ $shipment->vehicle?->plate_number ?? __('Unassigned') }}
+          @if ($shipment->vehicle?->type) <small class="sd-fact-sub">{{ $shipment->vehicle->type }}</small> @endif
+        </dd>
+      </div>
+      @if ($shipment->helper)
+        <div><dt>{{ __('Helper') }}</dt><dd>{{ $shipment->helper->name }}</dd></div>
+      @endif
       <div><dt>{{ __('Load') }}</dt><dd>{{ trans_choice(':count line|:count lines', $shipment->items->count()) }} · {{ trans_choice(':count unit|:count units', $units, ['count' => number_format($units)]) }}</dd></div>
     </dl>
 
@@ -363,30 +371,58 @@
     @if ($hasActions)
       {{-- Not <aside>: the layout styles every aside as the navigation sidebar. --}}
       <div class="sd-actions" role="complementary" aria-label="Actions">
-        @if ($officeCanUpdate || $canDispatch)
+        @if ($officeCanUpdate)
           <section class="card sd-action">
             <h2>{{ __('Update status') }}</h2>
-            @if ($officeCanUpdate)
-              <form class="sd-stack" method="POST" action="{{ route('shipments.status', $shipment) }}">
-                @csrf @method('PATCH')
-                <select name="status" aria-label="New status" data-status-help="office_status_help">
-                  @foreach ($shipment->allowedNextStatuses() as $next)
-                    <option value="{{ $next }}" data-desc="{{ __(\App\Models\Shipment::description($next)) }}">{{ __('Mark as :status', ['status' => __(\App\Models\Shipment::label($next))]) }}</option>
+            <form class="sd-stack" method="POST" action="{{ route('shipments.status', $shipment) }}">
+              @csrf @method('PATCH')
+              <select name="status" aria-label="New status" data-status-help="office_status_help">
+                @foreach ($shipment->allowedNextStatuses() as $next)
+                  <option value="{{ $next }}" data-desc="{{ __(\App\Models\Shipment::description($next)) }}">{{ __('Mark as :status', ['status' => __(\App\Models\Shipment::label($next))]) }}</option>
+                @endforeach
+              </select>
+              <small class="hint" id="office_status_help" aria-live="polite"></small>
+              <input type="text" name="note" placeholder="{{ __('Note (optional)') }}" maxlength="500" aria-label="{{ __('Note') }}">
+              <button type="submit" class="btn primary">{{ __('Update status') }}</button>
+            </form>
+          </section>
+        @endif
+
+        {{-- Super Admin: change who takes this shipment while it isn't finished. --}}
+        @if ($crew)
+          <section class="card sd-action" id="edit-assignment">
+            <h2>{{ __('Edit assignment') }}</h2>
+            @if ($errors->hasAny(['driver_id', 'vehicle_id', 'helper_id']))
+              <ul class="errors">@foreach (['driver_id', 'vehicle_id', 'helper_id'] as $f)@foreach ($errors->get($f) as $e)<li>{{ $e }}</li>@endforeach @endforeach</ul>
+            @endif
+            <form class="sd-stack" method="POST" action="{{ route('shipments.crew', $shipment) }}">
+              @csrf @method('PATCH')
+              <label for="crew_driver_id">{{ __('Driver') }}</label>
+              <select id="crew_driver_id" name="driver_id" required><option value="">{{ __('Select…') }}</option>
+                @foreach ($crew['drivers'] as $d)
+                  @php $on = $crew['busy']['drivers'][$d->id] ?? null; @endphp
+                  <option value="{{ $d->id }}" @selected(old('driver_id', $shipment->driver_id) == $d->id) @disabled($on)>{{ $d->name }}@if ($on) (on {{ $on->tracking_number }})@endif</option>
+                @endforeach
+              </select>
+              <label for="crew_vehicle_id">{{ __('Vehicle') }}</label>
+              <select id="crew_vehicle_id" name="vehicle_id" required><option value="">{{ __('Select…') }}</option>
+                @foreach ($crew['vehicles'] as $v)
+                  @php $on = $crew['busy']['vehicles'][$v->id] ?? null; @endphp
+                  <option value="{{ $v->id }}" @selected(old('vehicle_id', $shipment->vehicle_id) == $v->id) @disabled($on)>{{ $v->plate_number }}{{ $v->type ? " - {$v->type}" : '' }}@if ($on) (on {{ $on->tracking_number }})@endif</option>
+                @endforeach
+              </select>
+              @if ($crew['helpers']->count())
+                <label for="crew_helper_id">{{ __('Helper') }}</label>
+                <select id="crew_helper_id" name="helper_id"><option value="">{{ __('Unassigned') }}</option>
+                  @foreach ($crew['helpers'] as $h)
+                    @php $on = $crew['busy']['helpers'][$h->id] ?? null; @endphp
+                    <option value="{{ $h->id }}" @selected(old('helper_id', $shipment->helper_id) == $h->id) @disabled($on)>{{ $h->name }}@if ($on) (on {{ $on->tracking_number }})@endif</option>
                   @endforeach
                 </select>
-                <small class="hint" id="office_status_help" aria-live="polite"></small>
-                <input type="text" name="note" placeholder="{{ __('Note (optional)') }}" maxlength="500" aria-label="{{ __('Note') }}">
-                <button type="submit" class="btn primary">{{ __('Update status') }}</button>
-              </form>
-            @endif
-            @if ($canDispatch)
-              <form method="POST" action="{{ route('shipments.dispatch', $shipment) }}" class="sd-stack" style="margin-top:10px"
-                    onsubmit="return confirm(@js(__('Auto-allocate this shipment across the available fleet and dispatch it now?')))">
-                @csrf
-                <button type="submit" class="btn">🚚 {{ __('Auto-dispatch') }}</button>
-                <small class="hint">{{ __('Splits the load across the fleet if needed.') }}</small>
-              </form>
-            @endif
+              @endif
+              <button type="submit" class="btn">{{ __('Save assignment') }}</button>
+              <small class="hint">{{ __('Greyed-out choices are still out on another shipment.') }}</small>
+            </form>
           </section>
         @endif
 

@@ -323,7 +323,10 @@ class FieldDeliveryTest extends TestCase
         // A second one switches to a count, linking to the filtered list.
         $this->shipment('pending');
         $this->actingAs($office)->get('/shipments?status=open')->assertOk()
-            ->assertSee('2 shipments are not delivered yet')->assertSee('status=open', false);
+            ->assertSee('2 shipments are not delivered yet')
+            // ...and opens into a list with a row for each, linking to its own page.
+            ->assertSee('id="openBanner"', false)
+            ->assertSeeInOrder(['open-banner-list', "/shipments/{$s->shipment_id}\"", 'Out for delivery'], false);
 
         // Finished: Delivered, Returned or Cancelled all end the reminder.
         Shipment::query()->update(['status' => 'delivered']);
@@ -338,5 +341,38 @@ class FieldDeliveryTest extends TestCase
         $this->actingAs($this->user(Role::Manager))->get('/shipments?status=open')->assertOk()
             ->assertSee("/shipments/{$open->shipment_id}\"", false)
             ->assertDontSee("/shipments/{$done->shipment_id}\"", false);
+    }
+
+    public function test_the_list_can_be_filtered_by_scheduled_month_and_year(): void
+    {
+        $oct26 = $this->shipment('delivered');
+        $oct26->update(['scheduled_delivery_at' => '2026-10-15 09:00:00']);
+        $nov26 = $this->shipment('delivered');
+        $nov26->update(['scheduled_delivery_at' => '2026-11-02 09:00:00']);
+        $oct25 = $this->shipment('delivered');
+        $oct25->update(['scheduled_delivery_at' => '2025-10-20 09:00:00']);
+        $manager = $this->user(Role::Manager);
+
+        $shown = fn (string $query) => $this->actingAs($manager)->get('/shipments'.$query)->assertOk()
+            ->viewData('shipments')->pluck('shipment_id')->sort()->values()->all();
+
+        $this->assertSame([$oct26->shipment_id, $nov26->shipment_id, $oct25->shipment_id], $shown(''));
+        $this->assertSame([$oct26->shipment_id], $shown('?month=10&year=2026'));
+        $this->assertSame([$oct26->shipment_id, $nov26->shipment_id], $shown('?year=2026'));
+        // A month without a year means that month of every year.
+        $this->assertSame([$oct26->shipment_id, $oct25->shipment_id], $shown('?month=10'));
+        $this->assertSame([], $shown('?month=12&year=2026'));
+        // Nonsense values are ignored instead of failing.
+        $this->assertSame([$oct26->shipment_id, $nov26->shipment_id, $oct25->shipment_id], $shown('?month=13&year=abc'));
+
+        // The choice shows as selected, every year with a shipment is offered, and the
+        // filters ride along to the printable list.
+        $this->actingAs($manager)->get('/shipments?month=10&year=2026')
+            ->assertSee('<option value="10" selected>October</option>', false)
+            ->assertSee('<option value="2026" selected>2026</option>', false)
+            ->assertSee('<option value="2025"', false)
+            ->assertSee('month=10&amp;year=2026', false);
+        $this->actingAs($manager)->get('/shipments/print?month=10&year=2026')->assertOk()
+            ->assertSee('Scheduled: October 2026')->assertSee('1 shipment');
     }
 }

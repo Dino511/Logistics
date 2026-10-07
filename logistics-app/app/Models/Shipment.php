@@ -119,6 +119,12 @@ class Shipment extends Model
         return $this->belongsTo(Vehicle::class, 'vehicle_id');
     }
 
+    /** The truck / cargo helper riding along, if one was assigned. */
+    public function helper()
+    {
+        return $this->belongsTo(Helper::class, 'helper_id');
+    }
+
     public function customer()
     {
         return $this->belongsTo(Customer::class, 'customer_id');

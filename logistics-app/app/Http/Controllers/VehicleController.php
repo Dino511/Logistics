@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\Vehicle;
 use App\Models\VehicleLease;
+use App\Services\CrewAvailability;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,8 @@ class VehicleController extends Controller
     {
         return view('vehicles.index', [
             'vehicles' => Vehicle::with('lease')->withCount(['drivers', 'shipments'])->orderBy('plate_number')->get(),
+            // Vehicles still out on a shipment that isn't finished yet.
+            'busy' => app(CrewAvailability::class)->busy(),
         ]);
     }
 

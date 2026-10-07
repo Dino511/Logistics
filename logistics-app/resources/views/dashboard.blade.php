@@ -76,7 +76,7 @@
 
   {{-- Shipments at a glance --}}
   <section class="db-section">
-    <div class="db-section-title"><h2>Shipments</h2><a href="{{ route('shipments.index') }}">View all</a></div>
+    <div class="db-section-title"><h2>Shipments</h2></div>
     <div class="db-kpis">
       @foreach ($stats as $s)
         <div class="db-kpi {{ $s['tone'] }}">

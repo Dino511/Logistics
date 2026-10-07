@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Enums\Role;
+use App\Models\Helper;
 use App\Models\Shipment;
 use App\Models\User;
+use App\Services\CrewAvailability;
 use App\Services\StockReservations;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
@@ -44,6 +46,7 @@ class StockReservationTest extends TestCase
             $t->dateTime('scheduled_delivery_at')->nullable();
             $t->unsignedBigInteger('driver_id')->nullable();
             $t->unsignedBigInteger('vehicle_id')->nullable();
+            $t->unsignedBigInteger('helper_id')->nullable();
             $t->text('notes')->nullable();
             $t->unsignedBigInteger('created_by')->nullable();
             $t->timestamps();
@@ -59,6 +62,16 @@ class StockReservationTest extends TestCase
             $t->decimal('unit_weight_kg', 10, 2)->nullable();
             $t->unsignedSmallInteger('pickup_sequence')->nullable();
         });
+        Schema::create('shipment_vehicle_allocations', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('shipment_id');
+            $t->unsignedBigInteger('vehicle_id')->nullable();
+            $t->unsignedBigInteger('driver_id')->nullable();
+            $t->integer('sequence')->default(1);
+            $t->string('status')->default('dispatched');
+            $t->dateTime('delivered_at')->nullable();
+            $t->timestamps();
+        });
         Schema::create('shipment_status_history', function (Blueprint $t) {
             $t->id('history_id');
             $t->unsignedBigInteger('shipment_id');
@@ -73,11 +86,13 @@ class StockReservationTest extends TestCase
             $t->id();
             $t->string('name');
             $t->string('status');
+            $t->unsignedBigInteger('user_id')->nullable();
         });
         Schema::create('vehicles', function (Blueprint $t) {
             $t->id();
             $t->string('plate_number');
             $t->string('status');
+            $t->timestamps();
         });
 
         // A throwaway Inventory database: one product with 100 units at location 1.
@@ -108,6 +123,13 @@ class StockReservationTest extends TestCase
 
     private function createShipment(int $quantity, array $overrides = [])
     {
+        // A driver and a vehicle are required and can only be on one open shipment, so each
+        // shipment gets its own unless the test names them.
+        $overrides += [
+            'driver_id' => DB::table('drivers')->insertGetId(['name' => 'Driver '.uniqid(), 'status' => 'active']),
+            'vehicle_id' => DB::table('vehicles')->insertGetId(['plate_number' => 'T-'.uniqid(), 'status' => 'available']),
+        ];
+
         return $this->actingAs($this->coordinator)->post('/shipments', $overrides + [
             'origin_name' => 'Main Store', 'origin_address' => '1 Rizal St', 'origin_city' => 'Manila',
             'destination_name' => 'Branch', 'destination_address' => '2 Mabini St', 'destination_city' => 'Quezon City',
@@ -208,9 +230,9 @@ class StockReservationTest extends TestCase
 
         $this->assertSame(0, $this->reservedForSardines());
 
-        // The message sits with the schedule fields, not in the list at the top of the form.
+        // The message sits beside the pickup time on the origin stop, not in the list at the top of the form.
         $this->followingRedirects()->from('/shipments/create')->actingAs($this->coordinator)->post('/shipments', ['scheduled_pickup_at' => ''])
-            ->assertSee('id="schedule-errors"', false)->assertSee('Enter the scheduled pickup date and time.');
+            ->assertSee('id="pickup-errors"', false)->assertSee('Enter the scheduled pickup date and time.');
     }
 
     public function test_extra_pickups_are_saved_as_ordered_stops_starting_with_the_origin(): void
@@ -273,5 +295,119 @@ class StockReservationTest extends TestCase
 
         $this->createShipment(5)->assertSessionHasNoErrors();
         $this->assertNull(Shipment::firstOrFail()->items->first()->pickup_sequence);
+    }
+
+    public function test_only_a_super_admin_can_change_the_driver_and_vehicle_of_an_unfinished_shipment(): void
+    {
+        $this->createShipment(1)->assertSessionHasNoErrors();
+        $this->createShipment(1)->assertSessionHasNoErrors();
+        [$first, $second] = Shipment::orderBy('shipment_id')->get()->all();
+        $truck = DB::table('vehicles')->insertGetId(['plate_number' => 'NEW 5678', 'status' => 'available']);
+        $driver = DB::table('drivers')->insertGetId(['name' => 'Nina New', 'status' => 'active']);
+        $crew = ['driver_id' => $driver, 'vehicle_id' => $truck];
+        $admin = $this->user(Role::SuperAdmin);
+
+        $this->actingAs($this->coordinator)->patch("/shipments/{$first->shipment_id}/crew", $crew)->assertForbidden();
+
+        // Both are still required, and a crew out on another shipment is refused.
+        $this->actingAs($admin)->patch("/shipments/{$first->shipment_id}/crew", ['driver_id' => $driver])->assertSessionHasErrors('vehicle_id');
+        $this->actingAs($admin)->patch("/shipments/{$first->shipment_id}/crew", ['driver_id' => $second->driver_id, 'vehicle_id' => $truck])
+            ->assertSessionHasErrors('driver_id');
+
+        // Keeping its own vehicle doesn't count as busy.
+        $this->actingAs($admin)->patch("/shipments/{$first->shipment_id}/crew", ['driver_id' => $driver, 'vehicle_id' => $first->vehicle_id])
+            ->assertSessionHasNoErrors()->assertSessionHas('status', 'Driver and vehicle updated.');
+        $this->actingAs($admin)->patch("/shipments/{$first->shipment_id}/crew", $crew)->assertSessionHasNoErrors();
+        $this->assertSame([$driver, $truck], [(int) $first->refresh()->driver_id, (int) $first->vehicle_id]);
+
+        // A finished shipment keeps the crew it had.
+        $first->update(['status' => 'delivered']);
+        $this->actingAs($admin)->patch("/shipments/{$first->shipment_id}/crew", ['driver_id' => $second->driver_id, 'vehicle_id' => $truck])
+            ->assertSessionHas('error');
+        $this->assertSame($driver, (int) $first->refresh()->driver_id);
+    }
+
+    public function test_a_vehicle_driver_or_helper_on_an_unfinished_shipment_cannot_be_put_on_another(): void
+    {
+        $truck = DB::table('vehicles')->insertGetId(['plate_number' => 'ABC 1234', 'status' => 'available']);
+        $driver = DB::table('drivers')->insertGetId(['name' => 'Dan Driver', 'status' => 'active']);
+        $helper = Helper::create(['name' => 'Hector Helper', 'status' => 'active'])->id;
+        $crew = ['vehicle_id' => $truck, 'driver_id' => $driver, 'helper_id' => $helper];
+
+        $this->createShipment(1, $crew)->assertSessionHasNoErrors();
+        $first = Shipment::firstOrFail();
+        $this->assertSame([$truck, $driver, $helper], [(int) $first->vehicle_id, (int) $first->driver_id, (int) $first->helper_id]);
+
+        // All three are now tied up until the first shipment is finished.
+        $this->createShipment(1, $crew)->assertSessionHasErrors([
+            'vehicle_id' => "Vehicle ABC 1234 is still on shipment {$first->tracking_number} (Pending). It can be assigned again once that shipment is delivered, returned or cancelled.",
+            'driver_id', 'helper_id',
+        ]);
+        // One busy resource is enough to refuse, and a shipment with a free crew is still fine.
+        $this->createShipment(1, ['helper_id' => $helper])->assertSessionHasErrors('helper_id');
+        $this->createShipment(1)->assertSessionHasNoErrors();
+        $this->assertSame(2, Shipment::count());
+
+        // A driver and a vehicle are both needed; only the helper can be left out.
+        $this->createShipment(1, ['driver_id' => '', 'vehicle_id' => ''])->assertSessionHasErrors([
+            'driver_id' => 'Choose the driver for this shipment.',
+            'vehicle_id' => 'Choose the vehicle for this shipment.',
+        ]);
+        $this->assertSame(2, Shipment::count());
+
+        // The form shows them, greyed out, with the shipment they are on.
+        $this->actingAs($this->coordinator)->get('/shipments/create')->assertOk()
+            ->assertSee("Dan Driver (on {$first->tracking_number})")
+            ->assertSee("ABC 1234 (on {$first->tracking_number})")
+            ->assertSee("Hector Helper (on {$first->tracking_number})");
+
+        // Still busy while it is on the road...
+        $first->update(['status' => 'in_transit']);
+        $this->createShipment(1, $crew)->assertSessionHasErrors(['vehicle_id', 'driver_id', 'helper_id']);
+
+        // ...and free again once it is delivered.
+        $first->update(['status' => 'delivered']);
+        $this->createShipment(1, $crew)->assertSessionHasNoErrors();
+        $this->assertSame(3, Shipment::count());
+    }
+
+    public function test_finishing_a_dispatched_shipment_puts_its_truck_back_to_available(): void
+    {
+        $truck = DB::table('vehicles')->insertGetId(['plate_number' => 'ABC 1234', 'status' => 'on_road']);
+        $this->createShipment(1)->assertSessionHasNoErrors();
+        $shipment = Shipment::firstOrFail();
+        $shipment->update(['status' => 'in_transit', 'vehicle_id' => $truck]);
+        DB::table('shipment_vehicle_allocations')->insert(['shipment_id' => $shipment->shipment_id, 'vehicle_id' => $truck, 'status' => 'dispatched']);
+
+        $busy = app(CrewAvailability::class)->busy();
+        $this->assertSame($shipment->shipment_id, $busy['vehicles'][$truck]->shipment_id);
+
+        $this->actingAs($this->coordinator)->patch("/shipments/{$shipment->shipment_id}/status", ['status' => 'cancelled'])->assertRedirect();
+
+        $this->assertSame('available', DB::table('vehicles')->where('id', $truck)->value('status'));
+        $this->assertSame('cancelled', DB::table('shipment_vehicle_allocations')->where('shipment_id', $shipment->shipment_id)->value('status'));
+        $this->assertSame([], app(CrewAvailability::class)->busy()['vehicles']);
+    }
+
+    public function test_the_same_place_cannot_be_a_pickup_stop_twice(): void
+    {
+        // Stop 2 repeats the origin (whatever the capitals or spaces), and stop 3 repeats stop 2.
+        $this->createShipment(1, [
+            'pickup2_name' => ' main store ', 'pickup2_address' => '5 Aurora Blvd', 'pickup2_city' => 'Quezon City',
+        ])->assertSessionHasErrors(['pickup2_name' => 'main store is already Stop 1. Add its items there instead of listing it twice.']);
+
+        $this->createShipment(1, [
+            'pickup2_name' => 'Supplier A', 'pickup2_address' => '5 Aurora Blvd', 'pickup2_city' => 'Quezon City',
+            'pickup3_name' => 'SUPPLIER A', 'pickup3_address' => '9 Shaw Blvd', 'pickup3_city' => 'Pasig',
+        ])->assertSessionHasErrors(['pickup3_name' => 'SUPPLIER A is already Stop 2. Add its items there instead of listing it twice.'])
+            ->assertSessionDoesntHaveErrors('pickup2_name');
+        $this->assertSame(0, Shipment::count());
+
+        // Different places are fine, and the destination may share a name with a stop.
+        $this->createShipment(1, [
+            'pickup2_name' => 'Supplier A', 'pickup2_address' => '5 Aurora Blvd', 'pickup2_city' => 'Quezon City',
+            'destination_name' => 'Supplier A',
+        ])->assertSessionHasNoErrors();
+        $this->assertSame(1, Shipment::count());
     }
 }

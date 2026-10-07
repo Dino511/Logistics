@@ -151,9 +151,6 @@
     "Mark as :status": "Markahan bilang :status",
     "Note (optional)": "Tala (opsyonal)",
     "Note": "Tala",
-    "Auto-allocate this shipment across the available fleet and dispatch it now?": "Awtomatikong hatiin ang shipment na ito sa mga available na sasakyan at ipadala na ngayon?",
-    "Auto-dispatch": "Auto-dispatch",
-    "Splits the load across the fleet if needed.": "Hinahati ang karga sa mga sasakyan kung kailangan.",
 
     "Update delivery": "I-update ang delivery",
     "What happened?": "Ano ang nangyari?",
@@ -249,5 +246,15 @@
     ":count shipments are not delivered yet": ":count shipment ang hindi pa naihahatid",
     "due :when": "dapat maihatid sa :when",
     "Next due: :tracking, :when": "Susunod: :tracking, :when",
-    ":count overdue|:count overdue": ":count ang lampas na sa oras|:count ang lampas na sa oras"
+    ":count overdue|:count overdue": ":count ang lampas na sa oras|:count ang lampas na sa oras",
+    "Show all": "Ipakita lahat",
+    "View all :count": "Tingnan ang lahat ng :count",
+    "Drivers & helpers": "Mga driver at helper",
+
+    "Date": "Petsa",
+    "That time has to be :time or later.": "Dapat :time o mas huli ang oras.",
+    "AM or PM": "AM o PM",
+    "e.g. 8:30": "hal. 8:30",
+    "Enter the time as well.": "Ilagay rin ang oras.",
+    "Enter the time as hours and minutes, e.g. 8:30, then choose AM or PM.": "Ilagay ang oras at minuto, hal. 8:30, saka piliin ang AM o PM."
 }

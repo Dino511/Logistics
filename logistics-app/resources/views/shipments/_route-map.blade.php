@@ -14,15 +14,20 @@
     $height = $height ?? '300px';
     $livePoints = collect(isset($live) ? ($live instanceof \App\Models\VehicleLocationPing ? [$live] : $live) : [])
         ->map(fn ($p) => $p->toMapPoint())->values();
+    // A usable point: both numbers present, inside the globe's ranges, and not the 0,0
+    // "null island" a failed lookup can leave behind. (Latitude first, longitude second.)
+    $onMap = fn ($lat, $lng) => is_numeric($lat) && is_numeric($lng)
+        && abs((float) $lat) <= 90 && abs((float) $lng) <= 180
+        && ! ((float) $lat === 0.0 && (float) $lng === 0.0);
     $routes = collect($shipments instanceof \App\Models\Shipment ? [$shipments] : $shipments)
-        ->filter(fn ($s) => $s->origin_latitude !== null && $s->origin_longitude !== null
-            && $s->destination_latitude !== null && $s->destination_longitude !== null)
+        ->filter(fn ($s) => $onMap($s->origin_latitude, $s->origin_longitude)
+            && $onMap($s->destination_latitude, $s->destination_longitude))
         ->map(fn ($s) => [
             'from' => ['lat' => (float) $s->origin_latitude, 'lng' => (float) $s->origin_longitude, 'label' => $s->origin_name],
             'to' => ['lat' => (float) $s->destination_latitude, 'lng' => (float) $s->destination_longitude, 'label' => $s->destination_name],
             // Extra pickup stops (after the origin) the route passes through, in order.
             'via' => $s->relationLoaded('pickups')
-                ? $s->pickups->skip(1)->filter(fn ($p) => $p->latitude !== null && $p->longitude !== null)
+                ? $s->pickups->skip(1)->filter(fn ($p) => $onMap($p->latitude, $p->longitude))
                     ->map(fn ($p) => ['lat' => (float) $p->latitude, 'lng' => (float) $p->longitude, 'label' => $p->sequence.' · '.$p->name])->values()->all()
                 : [],
             'status' => $s->status,
@@ -69,6 +74,8 @@
     <script>
       document.addEventListener('DOMContentLoaded', function () {
         const routes = @json($routes);
+        // Forget routes saved by the older, faulty request so they can't be drawn again.
+        try { Object.keys(localStorage).filter((k) => k.startsWith('osrm:')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* storage unavailable */ }
         const live = @json($livePoints);
         const summary = document.getElementById(@json($mapId . '-summary'));
         const colors = { pending: '#f59e0b', in_transit: '#2563eb', delayed: '#dc2626', delivered: '#16a34a', cancelled: '#64748b' };
@@ -91,7 +98,18 @@
             .bindTooltip(p.label || '', { permanent: routes.length <= 3, direction: 'top', offset: [0, -8] });
         };
 
-        const fit = () => map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+        // Frame every stop and the whole route. While this runs the map is "fitting", so
+        // its own zoom isn't mistaken for the person moving the map.
+        let fitting = false;
+        let movedByHand = false;
+        const fit = () => {
+          if (!bounds.isValid()) return;
+          fitting = true;
+          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: false });
+          fitting = false;
+        };
+        map.on('dragstart', () => { movedByHand = true; });
+        map.on('zoomstart', () => { if (!fitting) movedByHand = true; });
 
         const formatTrip = (meters, seconds) => {
           const km = meters / 1000;
@@ -104,7 +122,8 @@
         // service isn't asked again for the same trip.
         async function roadRoute(r) {
           const stops = [r.from, ...r.via, r.to];
-          const key = 'osrm:' + stops.flatMap((p) => [p.lat, p.lng]).map((n) => n.toFixed(5)).join(',');
+          // "osrm2": routes saved before the via-stop fix below are ignored.
+          const key = 'osrm2:' + stops.flatMap((p) => [p.lat, p.lng]).map((n) => n.toFixed(5)).join(',');
           try {
             const cached = localStorage.getItem(key);
             if (cached) return JSON.parse(cached);
@@ -112,7 +131,10 @@
 
           const url = 'https://router.project-osrm.org/route/v1/driving/'
             + stops.map((p) => p.lng + ',' + p.lat).join(';')
-            + '?overview=full&geometries=geojson';
+            // continue_straight=false lets the truck turn around at a pickup stop. Without it
+            // the router must carry on in the direction it arrived, and a stop that sits on
+            // a port ramp sent the route onto the ferry and around the islands.
+            + '?overview=full&geometries=geojson&continue_straight=false';
           const res = await fetch(url);
           if (!res.ok) throw new Error('OSRM ' + res.status);
           const data = await res.json();
@@ -146,6 +168,16 @@
 
         fit();
         setTimeout(() => { map.invalidateSize(); fit(); }, 200);
+        // The map's box can change size after it is drawn (window resized, a side panel
+        // opening, the tab shown after loading in the background). Re-measure and re-frame,
+        // unless the person has already moved the map themselves.
+        if ('ResizeObserver' in window) {
+          let resizeTimer;
+          new ResizeObserver(() => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => { map.invalidateSize(); if (!movedByHand) fit(); }, 150);
+          }).observe(map.getContainer());
+        }
 
         // Recenter button: zooms back out to the whole route.
         const Recenter = L.Control.extend({
@@ -157,7 +189,7 @@
             btn.setAttribute('aria-label', 'Show whole route');
             btn.innerHTML = '&#8982;';
             btn.style.cssText = 'display:block;width:30px;height:30px;line-height:30px;text-align:center;background:#fff;color:#333;font-size:18px;text-decoration:none;';
-            L.DomEvent.on(btn, 'click', (e) => { L.DomEvent.preventDefault(e); fit(); });
+            L.DomEvent.on(btn, 'click', (e) => { L.DomEvent.preventDefault(e); movedByHand = false; fit(); });
             return btn;
           },
         });
@@ -188,7 +220,7 @@
                 : 'No road route found, so a straight line is shown.';
             }
           }
-          fit();
+          if (!movedByHand) fit();
         })();
       });
     </script>

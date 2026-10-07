@@ -4,7 +4,9 @@ namespace Tests\Concerns;
 
 use App\Enums\Role;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use ReflectionProperty;
 
 /**
  * Some migrations are SQL Server-only, so feature tests on the in-memory SQLite
@@ -14,6 +16,16 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 trait MigratesCoreTables
 {
     use RefreshDatabase;
+
+    /**
+     * Each test class builds its own cut-down copies of the SQL Server tables. Eloquent
+     * remembers a table's columns for the whole test run, so without this a model would
+     * silently drop attributes that an earlier test's smaller table didn't have.
+     */
+    protected function setUpMigratesCoreTables(): void
+    {
+        (new ReflectionProperty(Model::class, 'guardableColumns'))->setValue(null, []);
+    }
 
     protected function migrateFreshUsing()
     {
@@ -31,6 +43,7 @@ trait MigratesCoreTables
             '2026_09_29_000002_add_field_position_to_users_table',
             '2026_09_29_000004_add_locale_to_users_table',
             '2026_10_06_000001_create_shipment_pickups_table',
+            '2026_10_07_000001_create_helpers_table',
         ])];
     }
 

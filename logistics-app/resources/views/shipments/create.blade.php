@@ -11,7 +11,20 @@
   .field input:focus, .field select:focus, .field textarea:focus { outline:2px solid var(--primary); outline-offset:1px; }
   /* Page layout: the form's steps on the left, a summary that stays in view on the right. */
   .sf { display:grid; gap:20px; grid-template-columns:minmax(0,1fr); align-items:start; }
-  @media (min-width:1150px) { .sf { grid-template-columns:minmax(0,1fr) 320px; } .sf-summary { position:sticky; top:16px; } }
+  /* Wide screens: the summary column itself sticks, and scrolls inside if it is taller than the window. */
+  @media (min-width:960px) {
+    .sf { grid-template-columns:minmax(0,1fr) 300px; }
+    .sf-side { position:sticky; top:16px; max-height:calc(100vh - 32px); overflow-y:auto; }
+  }
+  /* Narrower screens have no room for a side column, so the save button rides along the bottom. */
+  .sf-bar { position:fixed; left:220px; right:0; bottom:0; z-index:30; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px;
+    background:var(--card); border-top:1px solid var(--border); box-shadow:0 -6px 18px rgba(0,0,0,.14); }
+  .sf-bar small { color:var(--muted); font-size:.8rem; min-width:0; }
+  .sf-bar small.ready { color:#1a8a4a; font-weight:600; }
+  .sf-bar .btn { padding:10px 18px; flex-shrink:0; }
+  @media (min-width:960px) { .sf-bar { display:none; } }
+  @media (max-width:959px) { .sf { padding-bottom:72px; } }
+  @media (max-width:760px) { .sf-bar { left:0; } }
   .sf-main { display:grid; gap:20px; min-width:0; }
   .sf-step-head { display:flex; gap:12px; align-items:flex-start; margin-bottom:18px; }
   .sf-step-head h2 { margin:0 0 2px; font-size:1.08rem; }
@@ -24,8 +37,12 @@
   .sf-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr); gap:14px; }
   .sf-fields .full, .sf-fields .loc-block { grid-column:1 / -1; }
   .sf-fields.four { grid-template-columns:repeat(4, minmax(0,1fr)); }
-  @media (max-width:900px) { .sf-fields.four { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  @media (max-width:1250px) { .sf-fields.four { grid-template-columns:repeat(2, minmax(0,1fr)); } }
   @media (max-width:640px) { .sf-fields, .sf-fields.four { grid-template-columns:minmax(0,1fr); } }
+  .crew-note { margin:0; color:var(--muted); font-size:.78rem; }
+  /* Date, time and AM/PM sit on one line, so a date-and-time field gets a row to itself. */
+  .sf-fields > .field:has(.dt-row) { grid-column:1 / -1; max-width:460px; }
+  .field-errors { margin:6px 0 0; }
   .field label .optional { font-weight:400; color:var(--muted); font-size:.75rem; margin-left:4px; }
   /* A red star on anything that must be filled in. */
   .sf .field:not(.loc-block):has(:required) > label::after,
@@ -124,6 +141,10 @@
   .combo-list li small { display:block; color:var(--muted); font-size:.75rem; }
   .combo-list li:hover, .combo-list li[aria-selected="true"] { background:var(--hover, rgba(120,120,120,.14)); }
   .combo-list li.loc-empty { cursor:default; color:var(--muted); font-size:.82rem; }
+  .combo-list li.taken { opacity:.5; cursor:not-allowed; }
+  .combo-list li.taken:hover { background:none; }
+  .dup-error { display:block; margin-top:4px; color:#d13438; font-size:.78rem; }
+  [data-theme="dark"] .dup-error { color:#ff6b6f; }
   .combo-list li.loc-empty:hover, .combo-list li.loc-kbd-hint:hover { background:none; }
 
   .loc-resolved-card { display:flex; align-items:center; gap:12px; padding:12px 14px; border:1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius:10px;
@@ -148,8 +169,9 @@
 
     @php
       // Schedule problems are shown next to the schedule fields, everything else up here.
-      $scheduleErrors = collect($errors->get('scheduled_pickup_at'))->merge($errors->get('scheduled_delivery_at'));
-      $otherErrors = collect($errors->all())->diff($scheduleErrors);
+      $pickupErrors = collect($errors->get('scheduled_pickup_at'));
+      $scheduleErrors = collect($errors->get('scheduled_delivery_at'));
+      $otherErrors = collect($errors->all())->diff($pickupErrors)->diff($scheduleErrors);
       $canCreate = ! $inventoryDown && count($stockOptions);
     @endphp
 
@@ -183,6 +205,13 @@
             <div class="field"><label for="origin_address">Address</label>
               <input id="origin_address" name="origin_address" value="{{ old('origin_address') }}" required placeholder="Street, building, barangay, city"></div>
             @include('shipments._location-block', ['prefix' => 'origin'])
+            <div class="field"><label for="scheduled_pickup_at">Pickup date and time</label>
+              <input type="datetime-local" id="scheduled_pickup_at" name="scheduled_pickup_at" value="{{ old('scheduled_pickup_at') }}" required
+                     min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}">
+              @if ($pickupErrors->isNotEmpty())
+                <ul class="errors field-errors" id="pickup-errors" role="alert">@foreach ($pickupErrors as $e)<li>{{ $e }}</li>@endforeach</ul>
+              @endif
+            </div>
           </div>
           @include('shipments._pickup-items', ['n' => 1, 'nameInput' => 'origin_name'])
         </div>
@@ -213,7 +242,7 @@
                 <div class="field"><label for="{{ $p }}_address">Address</label>
                   <input id="{{ $p }}_address" name="{{ $p }}_address" value="{{ old("{$p}_address") }}" required maxlength="255" placeholder="Street, building, barangay, city"></div>
                 @include('shipments._location-block', ['prefix' => $p])
-                <div class="field"><label for="{{ $p }}_scheduled_at">Pickup time <span class="optional">optional</span></label>
+                <div class="field"><label for="{{ $p }}_scheduled_at">Pickup date and time <span class="optional">optional</span></label>
                   <input type="datetime-local" id="{{ $p }}_scheduled_at" name="{{ $p }}_scheduled_at" value="{{ old("{$p}_scheduled_at") }}"
                          min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
               </div>
@@ -253,29 +282,45 @@
       <section class="card sf-step">
         <div class="sf-step-head">
           <span class="sf-step-no" aria-hidden="true">3</span>
-          <div><h2>Schedule &amp; assignment</h2><p>When it is collected and delivered, and who takes it. Driver and vehicle can be set later.</p></div>
+          <div><h2>Delivery &amp; assignment</h2><p>When it must arrive, and who takes it. A driver and a vehicle are required; the helper is optional.</p></div>
         </div>
         @if ($scheduleErrors->isNotEmpty())
           <ul class="errors" id="schedule-errors" role="alert">@foreach ($scheduleErrors as $e)<li>{{ $e }}</li>@endforeach</ul>
         @endif
         <div class="sf-fields four">
-          <div class="field"><label for="scheduled_pickup_at">Scheduled pickup</label>
-            <input type="datetime-local" id="scheduled_pickup_at" name="scheduled_pickup_at" value="{{ old('scheduled_pickup_at') }}" required
-                   min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
           <div class="field"><label for="scheduled_delivery_at">Scheduled delivery</label>
             <input type="datetime-local" id="scheduled_delivery_at" name="scheduled_delivery_at" value="{{ old('scheduled_delivery_at') }}" required
                    min="{{ now()->addMinute()->format('Y-m-d\TH:i') }}"></div>
-          @if ($drivers->count())
-            <div class="field"><label for="driver_id">Driver <span class="optional">optional</span></label>
-              <select id="driver_id" name="driver_id"><option value="">Unassigned</option>
-                @foreach ($drivers as $d)<option value="{{ $d->id }}" @selected(old('driver_id') == $d->id)>{{ $d->name }}</option>@endforeach
+          {{-- Always shown: a shipment can't be created without a driver and a vehicle. --}}
+          <div class="field"><label for="vehicle_id">Vehicle</label>
+            <select id="vehicle_id" name="vehicle_id" required><option value="">Select…</option>
+              @foreach ($vehicles as $v)
+                @php $on = $busy['vehicles'][$v->id] ?? null; @endphp
+                <option value="{{ $v->id }}" @selected(old('vehicle_id') == $v->id) @disabled($on)>{{ $v->plate_number }}{{ $v->type ? " - {$v->type}" : '' }}@if ($on) (on {{ $on->tracking_number }})@endif</option>
+              @endforeach
+            </select>
+            @unless ($vehicles->count()) <small class="hint">There are no vehicles to assign yet. Add one under Vehicles first.</small> @endunless
+          </div>
+          <div class="field"><label for="driver_id">Driver</label>
+            <select id="driver_id" name="driver_id" required><option value="">Select…</option>
+              @foreach ($drivers as $d)
+                @php $on = $busy['drivers'][$d->id] ?? null; @endphp
+                <option value="{{ $d->id }}" @selected(old('driver_id') == $d->id) @disabled($on)>{{ $d->name }}@if ($on) (on {{ $on->tracking_number }})@endif</option>
+              @endforeach
+            </select>
+            @unless ($drivers->count()) <small class="hint">There are no active drivers yet. Add one under Drivers first.</small> @endunless
+          </div>
+          @if ($helpers->count())
+            <div class="field"><label for="helper_id">Helper <span class="optional">optional</span></label>
+              <select id="helper_id" name="helper_id"><option value="">Unassigned</option>
+                @foreach ($helpers as $h)
+                  @php $on = $busy['helpers'][$h->id] ?? null; @endphp
+                  <option value="{{ $h->id }}" @selected(old('helper_id') == $h->id) @disabled($on)>{{ $h->name }}@if ($on) (on {{ $on->tracking_number }})@endif</option>
+                @endforeach
               </select></div>
           @endif
-          @if ($vehicles->count())
-            <div class="field"><label for="vehicle_id">Vehicle <span class="optional">optional</span></label>
-              <select id="vehicle_id" name="vehicle_id"><option value="">Unassigned</option>
-                @foreach ($vehicles as $v)<option value="{{ $v->id }}" @selected(old('vehicle_id') == $v->id)>{{ $v->plate_number }}</option>@endforeach
-              </select></div>
+          @if ($busy['drivers'] || $busy['vehicles'] || $busy['helpers'])
+            <p class="full crew-note">Greyed-out choices are still out on the shipment shown. They can be assigned again once it is delivered, returned or cancelled.</p>
           @endif
           <div class="field full"><label for="notes">Instructions for the driver <span class="optional">optional</span></label>
             <textarea id="notes" name="notes" rows="2" maxlength="1000" placeholder="e.g. call the receiver before arriving, fragile, gate code…">{{ old('notes') }}</textarea></div>
@@ -292,8 +337,9 @@
           <div><dt>Pickup</dt><dd id="sumPickup">—</dd></div>
           <div><dt>Delivery</dt><dd id="sumDelivery">—</dd></div>
           <div><dt>Items</dt><dd id="sumItems">—</dd></div>
-          <div><dt>Driver</dt><dd id="sumDriver">Unassigned</dd></div>
           <div><dt>Vehicle</dt><dd id="sumVehicle">Unassigned</dd></div>
+          <div><dt>Driver</dt><dd id="sumDriver">Unassigned</dd></div>
+          @if ($helpers->count()) <div><dt>Helper</dt><dd id="sumHelper">Unassigned</dd></div> @endif
         </dl>
 
         <p class="sf-todo" id="sumTodo" aria-live="polite"></p>
@@ -301,17 +347,62 @@
         <a class="btn sf-cancel" href="{{ route('shipments.index') }}">Cancel</a>
 
         @if ($canCreate)
-          <p class="sf-foot">Stock is checked when you save. Shipments don't reduce inventory quantities. Unit weight is only needed for automatic multi-vehicle dispatch.</p>
+          <p class="sf-foot">Stock is checked when you save. Shipments don't reduce inventory quantities. Unit weight is optional.</p>
         @else
           <p class="sf-foot">A shipment needs at least one item, so it can't be created until there is free stock.</p>
         @endif
       </div>
+    </div>
+
+    {{-- Shown only where the summary can't sit beside the form (see .sf-bar). --}}
+    <div class="sf-bar">
+      <small id="barTodo" aria-hidden="true"></small>
+      <button type="submit" class="btn primary" @disabled(! $canCreate)>Create shipment</button>
     </div>
   </form>
 @endsection
 
 @push('scripts')
 <script>
+  // A place can be a pickup stop only once per shipment: everything collected there goes
+  // under that one stop. The earlier stop keeps the name; a later one using it is refused.
+  const pickupNames = (function () {
+    const inputs = ['origin', ...@json(array_map(fn ($n) => "pickup{$n}", range(2, \App\Models\Shipment::MAX_PICKUPS)))]
+      .map((prefix) => document.getElementById(prefix + '_name'));
+    const inUse = () => inputs.filter((input) => !input.closest('fieldset[disabled]'));
+    const stopNo = (input) => input.id === 'origin_name' ? 1 : Number(input.closest('.pickup-extra').querySelector('.pickup-no').textContent);
+    const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+    // The number of another stop already using this name, or null.
+    function takenBy(input, name) {
+      if (!inputs.includes(input) || !name.trim()) return null;
+      const other = inUse().find((i) => i !== input && same(i.value, name));
+      return other ? stopNo(other) : null;
+    }
+
+    function check() {
+      inUse().forEach((input) => {
+        const earlier = input.value.trim() && inUse().find((i) => i !== input && same(i.value, input.value) && stopNo(i) < stopNo(input));
+        const problem = earlier ? `${input.value.trim()} is already Stop ${stopNo(earlier)}. Add its items there instead of listing it twice.` : '';
+        input.setCustomValidity(problem);
+        const field = input.closest('.field');
+        let note = field.querySelector('.dup-error');
+        if (!note) {
+          note = Object.assign(document.createElement('small'), { className: 'dup-error' });
+          note.setAttribute('aria-live', 'polite');
+          field.append(note);
+        }
+        note.textContent = problem;
+        note.hidden = !problem;
+      });
+    }
+
+    inputs.forEach((input) => ['input', 'change', 'place:chosen'].forEach((type) => input.addEventListener(type, check)));
+    check();
+
+    return { takenBy, check };
+  })();
+
   // Origin / destination name suggestions from Inventory (locations and suppliers).
   // Picking one fills the name and address; typing anything else is still allowed.
   (function () {
@@ -355,8 +446,9 @@
               name = esc(p.name.slice(0, at)) + '<mark>' + esc(p.name.slice(at, at + q.length)) + '</mark>' + esc(p.name.slice(at + q.length));
             }
           }
-          const sub = [p.type, p.sub, p.address || p.city].filter(Boolean).map(esc).join(' · ');
-          return '<li role="option" data-i="' + i + '" aria-selected="' + (i === active) + '"><div><strong>' + name + '</strong><small>' + sub + '</small></div></li>';
+          const taken = pickupNames.takenBy(input, p.name);
+          const sub = [taken ? 'Already Stop ' + taken : null, p.type, p.sub, p.address || p.city].filter(Boolean).map(esc).join(' · ');
+          return '<li role="option" data-i="' + i + '" aria-selected="' + (i === active) + '"' + (taken ? ' class="taken" aria-disabled="true"' : '') + '><div><strong>' + name + '</strong><small>' + sub + '</small></div></li>';
         }).join('');
 
         list.hidden = false;
@@ -366,6 +458,7 @@
       function choose(i) {
         const p = matches[i];
         if (!p) return;
+        if (pickupNames.takenBy(input, p.name)) return; // already another pickup stop
         input.value = p.name;
         if (address && p.address) address.value = p.address;
         lat.value = p.lat ?? '';
@@ -748,6 +841,7 @@
       // Number the visible stops 2, 3, ... whatever order they were added or removed in.
       stops.filter((s) => !s.hidden).forEach((s, i) => { s.querySelector('.pickup-no').textContent = i + 2; });
       addBtn.hidden = stops.every((s) => !s.hidden);
+      pickupNames.check();
     }
 
     addBtn.addEventListener('click', () => {
@@ -764,6 +858,7 @@
       const items = stop.querySelector('.pickup-items');
       if (items) pickupItems.clear(items);
       stop.querySelectorAll('input').forEach((input) => { input.value = ''; });
+      stop.querySelectorAll('input').forEach((input) => input._dtSync?.());
       stop.querySelector('[id$="_loc_resolved"]').hidden = true;
       stop.querySelector('[id$="_loc_suggest"]').hidden = true;
       stop.querySelector('[id$="_loc_manual"]').hidden = true;
@@ -795,11 +890,11 @@
     pickup.addEventListener('change', () => {
       apply();
       // A delivery time already entered that now falls before the pickup is cleared, not silently kept.
-      if (delivery.value && delivery.value < pickup.value) delivery.value = '';
+      if (delivery.value && delivery.value < pickup.value) { delivery.value = ''; delivery._dtSync?.(); }
     });
     setInterval(apply, 60000);
     // After a failed save, bring the schedule message into view.
-    document.getElementById('schedule-errors')?.scrollIntoView({ block: 'center' });
+    (document.getElementById('pickup-errors') || document.getElementById('schedule-errors'))?.scrollIntoView({ block: 'center' });
   })();
 
   // The summary panel: a running picture of the shipment as the form is filled in, and how
@@ -829,6 +924,7 @@
       $('sumDelivery').textContent = when(val('scheduled_delivery_at'));
       $('sumDriver').textContent = picked('driver_id');
       $('sumVehicle').textContent = picked('vehicle_id');
+      if ($('sumHelper')) $('sumHelper').textContent = picked('helper_id');
 
       const lines = [...document.querySelectorAll('.pickup-items .line')].filter((row) => row.querySelector('select').value);
       const units = lines.reduce((sum, row) => sum + (parseInt(row.querySelector('input[type=number]').value, 10) || 0), 0);
@@ -850,6 +946,10 @@
       } else {
         todo.textContent = 'All required fields are filled in.';
       }
+      // The bottom bar (narrow screens) carries the same count in short form.
+      const bar = $('barTodo');
+      bar.className = missing.length ? '' : 'ready';
+      bar.textContent = missing.length ? `${missing.length} required ${missing.length === 1 ? 'field' : 'fields'} left` : 'Ready to create';
     }
 
     let queued = false;

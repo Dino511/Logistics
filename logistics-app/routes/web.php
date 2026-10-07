@@ -7,6 +7,7 @@ use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\EmergencyContactController;
+use App\Http\Controllers\HelperController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\ProfileController;
@@ -59,10 +60,11 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
         Route::get('/shipments/create', [ShipmentController::class, 'create'])->name('shipments.create');
         Route::post('/shipments', [ShipmentController::class, 'store'])->name('shipments.store');
         Route::patch('/shipments/{shipment}/status', [ShipmentController::class, 'updateStatus'])->name('shipments.status');
-        Route::post('/shipments/{shipment}/dispatch', [ShipmentController::class, 'dispatch'])->name('shipments.dispatch');
 
         Route::resource('vehicles', VehicleController::class)->except(['show', 'destroy']);
         Route::resource('drivers', DriverController::class)->except(['show', 'destroy']);
+        // Truck / cargo helpers are listed on the Drivers page, so there is no index of their own.
+        Route::resource('helpers', HelperController::class)->except(['index', 'show', 'destroy']);
     });
 
     // Reports: Manager and Super Admin only (the controller re-checks with a Gate).
@@ -76,6 +78,7 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
     Route::middleware('role:manager')->group(function () {
         Route::delete('/vehicles/{vehicle}', [VehicleController::class, 'destroy'])->name('vehicles.destroy');
         Route::delete('/drivers/{driver}', [DriverController::class, 'destroy'])->name('drivers.destroy');
+        Route::delete('/helpers/{helper}', [HelperController::class, 'destroy'])->name('helpers.destroy');
     });
 
     Route::get('/shipments/{shipment}', [ShipmentController::class, 'show'])->name('shipments.show');
@@ -116,6 +119,9 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
         Route::get('/tracking', [TrackingController::class, 'index'])->name('tracking.index');
         Route::get('/tracking/positions', [TrackingController::class, 'positions'])->name('tracking.positions');
     });
+
+    // Changing the driver, vehicle or helper of a shipment after it was created: Super Admin only.
+    Route::patch('/shipments/{shipment}/crew', [ShipmentController::class, 'updateCrew'])->middleware('role:super_admin')->name('shipments.crew');
 
     // Super Admin only. The middleware blocks other roles; the controller re-checks via a Gate.
     Route::middleware('role:super_admin')->prefix('users')->name('users.')->group(function () {

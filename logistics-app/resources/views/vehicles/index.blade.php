@@ -10,6 +10,7 @@
   .empty { text-align:center; color:var(--muted); padding:32px 8px; }
   .row-actions { display:flex; gap:6px; justify-content:flex-end; }
   .row-actions form { margin:0; }
+  .in-use { display:inline-block; margin-top:4px; font-size:.78rem; font-weight:600; color:#d98a00; text-decoration:none; }
   .btn.danger { color:#d13438; border-color:#d13438; } [data-theme="dark"] .btn.danger { color:#ff6b6f; border-color:#ff6b6f; }
 </style>
 @endpush
@@ -38,7 +39,11 @@
                 @endif
               </td>
               <td>{{ $v->capacity_kg !== null ? number_format($v->capacity_kg, 0).' kg' : '—' }}</td>
-              <td><span class="badge {{ \App\Models\Vehicle::badge($v->status) }}">{{ \App\Models\Vehicle::statusLabel($v->status) }}</span></td>
+              <td><span class="badge {{ \App\Models\Vehicle::badge($v->status) }}">{{ \App\Models\Vehicle::statusLabel($v->status) }}</span>
+                @if ($on = $busy['vehicles'][$v->id] ?? null)
+                  <br><a class="in-use" href="{{ route('shipments.show', $on) }}">In use · {{ $on->tracking_number }}</a>
+                @endif
+              </td>
               <td>{{ $v->drivers_count }}</td>
               <td>{{ $v->shipments_count }}</td>
               <td>

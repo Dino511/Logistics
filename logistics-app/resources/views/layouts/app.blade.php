@@ -81,6 +81,8 @@
   .chevron { transition:transform .15s; color:var(--muted); } .user-trigger[aria-expanded="true"] .chevron { transform:rotate(180deg); }
   .dropdown { position:absolute; right:0; top:calc(100% + 8px); min-width:230px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:6px; box-shadow:0 10px 30px rgba(0,0,0,.15); z-index:50; }
   .dropdown[hidden] { display:none; }
+  /* Leaflet stacks its tiles and controls up to z-index 1000; keep that inside the map so menus open over it. */
+  .leaflet-container { z-index:0; }
   .dropdown .item { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:10px 12px; border:0; background:none; border-radius:8px; color:var(--text); font:inherit; font-size:.9rem; cursor:pointer; text-align:left; }
   .dropdown .item:hover, .dropdown .item:focus-visible { background:var(--hover); outline:none; }
   .dropdown .item.danger { color:#d13438; } [data-theme="dark"] .dropdown .item.danger { color:#ff6b6f; }
@@ -134,7 +136,22 @@
   .open-banner-text { flex:1; min-width:0; }
   .open-banner-text strong { margin-right:6px; }
   .open-banner-go { flex-shrink:0; font-weight:600; color:var(--primary); }
-  @media print { .open-banner { display:none; } }
+  .open-banner-group { margin-bottom:16px; border-radius:10px; border:1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); background:color-mix(in srgb, var(--primary) 9%, var(--card)); }
+  .open-banner-group.overdue { border-color:#d13438; background:color-mix(in srgb, #d13438 9%, var(--card)); }
+  .open-banner-group > summary.open-banner { margin:0; border:0; background:none; cursor:pointer; list-style:none; }
+  .open-banner-group > summary::-webkit-details-marker { display:none; }
+  .open-banner-group > summary:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+  .open-banner-group .when-open, .open-banner-group[open] .when-closed { display:none; }
+  .open-banner-group[open] .when-open { display:inline; }
+  .open-banner-list { list-style:none; margin:0; padding:0 8px 8px; max-height:280px; overflow-y:auto; }
+  .open-banner-list a { display:grid; grid-template-columns:minmax(150px, auto) minmax(0, 1fr) auto auto; gap:6px 14px; align-items:center; padding:9px 8px; border-radius:8px; border-top:1px solid var(--border); color:var(--text); text-decoration:none; font-size:.88rem; }
+  .open-banner-list a:hover { background:var(--hover); }
+  .open-banner-where { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .open-banner-due { color:var(--muted); white-space:nowrap; font-size:.82rem; }
+  .open-banner-due.late { color:#d13438; font-weight:600; }
+  .open-banner-more { display:block; padding:4px 16px 12px; font-size:.85rem; font-weight:600; color:var(--primary); text-decoration:none; }
+  @media (max-width:640px) { .open-banner-list a { grid-template-columns:minmax(0, 1fr) auto; } .open-banner-where { grid-column:1 / -1; grid-row:2; } .open-banner-due { grid-column:1 / -1; } }
+  @media print { .open-banner, .open-banner-group { display:none; } }
   header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; gap:12px; }
   header h1 { margin:0; font-size:1.5rem; }
   header form { display:flex; align-items:center; gap:12px; font-size:.9rem; }
@@ -186,7 +203,7 @@
         ])],
         'fleet' => $isOffice ? ['label' => __('Fleet'), 'links' => [
           ['vehicles.*', route('vehicles.index'), __('Vehicles')],
-          ['drivers.*', route('drivers.index'), __('Drivers')],
+          [['drivers.*', 'helpers.*'], route('drivers.index'), __('Drivers & helpers')],
         ]] : null,
         'insights' => $isManager ? ['label' => __('Insights'), 'links' => [
           ['reports.*', route('reports.activity'), __('Reports')],
@@ -302,20 +319,46 @@
 
     {{-- Stays on every page while any delivery is unfinished; gone once they all are. --}}
     @if ($open = app(\App\Services\OpenShipments::class)->reminderFor(auth()->user()))
-      <a class="open-banner {{ $open['overdue'] ? 'overdue' : '' }}" href="{{ $open['url'] }}" role="status">
-        <span class="open-banner-icon" aria-hidden="true">🚚</span>
-        <span class="open-banner-text">
-          @if ($open['count'] === 1)
+      @php $due = fn ($s) => $s->scheduled_delivery_at->translatedFormat('M j, g:i A'); @endphp
+      @if ($open['count'] === 1)
+        <a class="open-banner {{ $open['overdue'] ? 'overdue' : '' }}" href="{{ $open['url'] }}" role="status">
+          <span class="open-banner-icon" aria-hidden="true">🚚</span>
+          <span class="open-banner-text">
             <strong>{{ __('1 shipment is not delivered yet') }}</strong>
-            {{ $open['first']->tracking_number }} · {{ __($open['first']->statusLabel()) }} · {{ __('due :when', ['when' => $open['first']->scheduled_delivery_at->translatedFormat('M j, g:i A')]) }}
-          @else
-            <strong>{{ __(':count shipments are not delivered yet', ['count' => $open['count']]) }}</strong>
-            {{ __('Next due: :tracking, :when', ['tracking' => $open['first']->tracking_number, 'when' => $open['first']->scheduled_delivery_at->translatedFormat('M j, g:i A')]) }}
+            {{ $open['first']->tracking_number }} · {{ __($open['first']->statusLabel()) }} · {{ __('due :when', ['when' => $due($open['first'])]) }}
+            @if ($open['overdue']) <span class="badge b-delayed">{{ trans_choice(':count overdue|:count overdue', $open['overdue']) }}</span> @endif
+          </span>
+          <span class="open-banner-go">{{ __('View') }}</span>
+        </a>
+      @else
+        {{-- Several: one line that opens into the list, each row going to its own shipment. --}}
+        <details class="open-banner-group {{ $open['overdue'] ? 'overdue' : '' }}" id="openBanner">
+          <summary class="open-banner" role="status">
+            <span class="open-banner-icon" aria-hidden="true">🚚</span>
+            <span class="open-banner-text">
+              <strong>{{ __(':count shipments are not delivered yet', ['count' => $open['count']]) }}</strong>
+              {{ __('Next due: :tracking, :when', ['tracking' => $open['first']->tracking_number, 'when' => $due($open['first'])]) }}
+              @if ($open['overdue']) <span class="badge b-delayed">{{ trans_choice(':count overdue|:count overdue', $open['overdue']) }}</span> @endif
+            </span>
+            <span class="open-banner-go"><span class="when-closed">{{ __('Show all') }}</span><span class="when-open">{{ __('Hide') }}</span></span>
+          </summary>
+          <ul class="open-banner-list">
+            @foreach ($open['list'] as $s)
+              <li>
+                <a href="{{ route('shipments.show', $s) }}">
+                  <strong>{{ $s->tracking_number }}</strong>
+                  <span class="open-banner-where">{{ $s->destination_name }}@if ($s->destination_city) · {{ $s->destination_city }}@endif</span>
+                  <span class="badge {{ $s->badgeClass() }}">{{ __($s->statusLabel()) }}</span>
+                  <span class="open-banner-due {{ $s->scheduled_delivery_at->isPast() ? 'late' : '' }}">{{ __('due :when', ['when' => $due($s)]) }}</span>
+                </a>
+              </li>
+            @endforeach
+          </ul>
+          @if ($open['count'] > count($open['list']))
+            <a class="open-banner-more" href="{{ $open['url'] }}">{{ __('View all :count', ['count' => $open['count']]) }}</a>
           @endif
-          @if ($open['overdue']) <span class="badge b-delayed">{{ trans_choice(':count overdue|:count overdue', $open['overdue']) }}</span> @endif
-        </span>
-        <span class="open-banner-go">{{ __('View') }}</span>
-      </a>
+        </details>
+      @endif
     @endif
 
     @foreach (['status' => 'success', 'warning' => 'warning', 'error' => 'error'] as $key => $type)
@@ -560,6 +603,17 @@
     openModal(); // reopen with the validation errors after a failed save
   @endif
 </script>
+  <script>
+    // The undelivered-shipments list keeps its open or closed state from page to page.
+    (function () {
+      const banner = document.getElementById('openBanner');
+      if (!banner) return;
+      try { banner.open = sessionStorage.getItem('openBanner') === '1'; } catch (e) {}
+      banner.addEventListener('toggle', () => { try { sessionStorage.setItem('openBanner', banner.open ? '1' : '0'); } catch (e) {} });
+    })();
+  </script>
+  {{-- Before the page's own scripts, so they find date-time fields already upgraded. --}}
+  @include('partials.datetime')
 @stack('scripts')
 <script>
   applyTheme(document.documentElement.dataset.theme || 'light'); // sync switch state + chart colors

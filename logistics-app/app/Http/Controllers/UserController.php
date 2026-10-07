@@ -14,13 +14,26 @@ use Illuminate\Validation\Rules\Password;
 
 class UserController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         Gate::authorize('manage-users');
 
+        // Anything not recognised falls back to "no filter", so a bad link still shows the list.
+        $sort = $request->query('sort') === 'za' ? 'za' : 'az';
+        $role = Role::tryFrom((string) $request->query('role'));
+        $status = in_array($request->query('status'), ['active', 'inactive'], true) ? $request->query('status') : null;
+
         return view('users.index', [
-            'users' => User::orderBy('name')->get(),
+            'users' => User::query()
+                ->when($role, fn ($q) => $q->where('role', $role->value))
+                ->when($status, fn ($q) => $q->where('is_active', $status === 'active'))
+                ->orderBy('name', $sort === 'za' ? 'desc' : 'asc')
+                ->get(),
+            'total' => User::count(),
             'roles' => Role::cases(),
+            'sort' => $sort,
+            'filterRole' => $role,
+            'status' => $status,
         ]);
     }
 

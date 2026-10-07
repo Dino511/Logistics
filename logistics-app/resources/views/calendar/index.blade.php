@@ -41,6 +41,8 @@
   .cal-legend .cal-ev { display:inline-block; margin:0 6px 0 0; }
   .empty { text-align:center; color:var(--muted); padding:24px 8px; }
   td a.track { color:var(--primary); text-decoration:none; font-weight:600; }
+  tr.row-link { cursor:pointer; }
+  tr.row-link:hover td { background:var(--hover); }
   /* Phones: seven columns are too narrow for text, so each entry becomes a coloured bar. */
   @media (max-width:760px) {
     .cal-day { min-height:64px; padding:4px; }
@@ -150,7 +152,7 @@
                 $driverNames = collect([$sh->driver?->name])->merge($sh->allocations->map(fn ($a) => $a->driver?->name))->filter()->unique()->implode(', ');
                 $plates = collect([$sh->vehicle?->plate_number])->merge($sh->allocations->map(fn ($a) => $a->vehicle?->plate_number))->filter()->unique()->implode(', ');
               @endphp
-              <tr>
+              <tr class="row-link" data-href="{{ route('shipments.show', $sh) }}">
                 <td>{{ $e['at']->format('g:i A') }}</td>
                 <td><span class="cal-ev {{ $e['type'] }}" style="display:inline-block; margin:0; height:auto; padding:2px 6px; font-size:.74rem; border-left-width:3px;">{{ __($e['label']) }}</span></td>
                 <td><a class="track" href="{{ route('shipments.show', $sh) }}">{{ $sh->tracking_number }}</a></td>
@@ -169,3 +171,17 @@
     @endif
   </div>
 @endsection
+
+@push('scripts')
+<script>
+  // Clicking anywhere on a row of the day list opens that shipment. The tracking link keeps
+  // its own behaviour, and dragging to select text does not navigate.
+  document.querySelectorAll('tr.row-link').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('a, button, input, select, label') || window.getSelection().toString()) return;
+      if (e.ctrlKey || e.metaKey) window.open(row.dataset.href, '_blank', 'noopener');
+      else window.location.href = row.dataset.href;
+    });
+  });
+</script>
+@endpush

@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Exceptions\InsufficientFleetCapacityException;
 use App\Models\ActivityLog;
 use App\Models\Driver;
+use App\Models\Helper;
 use App\Models\Inventory\Location;
 use App\Models\Inventory\Stock;
 use App\Models\Inventory\Supplier;
@@ -12,7 +12,7 @@ use App\Models\Shipment;
 use App\Models\ShipmentPickup;
 use App\Models\Vehicle;
 use App\Models\VehicleLocationPing;
-use App\Services\Fleet\FleetAllocationService;
+use App\Services\CrewAvailability;
 use App\Services\Geocoder;
 use App\Services\ShipmentAlerts;
 use App\Services\StockReservations;
@@ -20,9 +20,9 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use InvalidArgumentException;
 
 class ShipmentController extends Controller
 {
@@ -31,10 +31,9 @@ class ShipmentController extends Controller
 
     public function index(Request $request)
     {
-        $status = $request->query('status');
-        $search = trim((string) $request->query('q'));
+        $filters = $this->listFilters($request);
 
-        $shipments = $this->listQuery($status, $search)
+        $shipments = $this->listQuery($filters)
             ->simplePaginate(15)
             ->withQueryString();
 
@@ -54,8 +53,11 @@ class ShipmentController extends Controller
             'shipments' => $shipments,
             'myDeliveries' => $myDeliveries,
             'isLinkedDriver' => (bool) $user->driver,
-            'status' => $status,
-            'search' => $search,
+            'status' => $filters['status'],
+            'search' => $filters['search'],
+            'month' => $filters['month'],
+            'year' => $filters['year'],
+            'years' => $this->scheduledYears(),
         ]);
     }
 
@@ -126,6 +128,9 @@ class ShipmentController extends Controller
             // Only drivers who are working and vehicles that aren't in the workshop.
             'drivers' => Driver::where('status', 'active')->orderBy('name')->get(),
             'vehicles' => Vehicle::where('status', '!=', 'maintenance')->orderBy('plate_number')->get(),
+            'helpers' => Helper::where('status', 'active')->orderBy('name')->get(),
+            // Who and what is still out on an unfinished shipment: shown, but not selectable.
+            'busy' => app(CrewAvailability::class)->busy(),
         ]);
     }
 
@@ -205,8 +210,10 @@ class ShipmentController extends Controller
             'destination_postal_code' => ['nullable', 'string', 'max:20'],
             'scheduled_pickup_at' => ['required', 'date', 'after:now'],
             'scheduled_delivery_at' => ['required', 'date', 'after:now', 'after_or_equal:scheduled_pickup_at'],
-            'driver_id' => ['nullable', 'integer', 'exists:drivers,id'],
-            'vehicle_id' => ['nullable', 'integer', 'exists:vehicles,id'],
+            // Every shipment leaves with a driver and a vehicle; only the helper is optional.
+            'driver_id' => ['required', 'integer', 'exists:drivers,id'],
+            'vehicle_id' => ['required', 'integer', 'exists:vehicles,id'],
+            'helper_id' => ['nullable', 'integer', 'exists:helpers,id'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.key' => ['required', 'string', 'regex:/^\d+:\d+$/'],
@@ -225,6 +232,8 @@ class ShipmentController extends Controller
             'scheduled_delivery_at.required' => 'Enter the scheduled delivery date and time.',
             'scheduled_delivery_at.after' => 'The scheduled delivery must be in the future.',
             'scheduled_delivery_at.after_or_equal' => "The scheduled delivery can't be earlier than the scheduled pickup.",
+            'driver_id.required' => 'Choose the driver for this shipment.',
+            'vehicle_id.required' => 'Choose the vehicle for this shipment.',
         ], $pickupNames);
 
         // Pull the extra stops out of the validated data, skipping any left blank.
@@ -246,11 +255,30 @@ class ShipmentController extends Controller
                 ];
             }
         }
+
+        // A place can be a pickup stop only once: everything collected there goes under one stop.
+        $seen = [Str::lower(trim($data['origin_name'])) => 1];
+        $repeats = [];
+        foreach ($stopNumbers as $n => $sequence) {
+            if ($n === 1) {
+                continue;
+            }
+            $name = trim($data["pickup{$n}_name"]);
+            if ($first = $seen[Str::lower($name)] ?? null) {
+                $repeats["pickup{$n}_name"] = "{$name} is already Stop {$first}. Add its items there instead of listing it twice.";
+            } else {
+                $seen[Str::lower($name)] = $sequence;
+            }
+        }
+        if ($repeats) {
+            throw ValidationException::withMessages($repeats);
+        }
         $data = array_diff_key($data, $pickupRules);
 
         // Check stock up front so a shortage is reported before the slower map lookup;
         // it's checked again below, under the lock, right before saving.
         $this->resolveItems($data['items'], $reservations->reserved());
+        $this->assertCrewFree($data);
 
         // Anything not pinned in Inventory gets looked up from its address for the route map.
         foreach (['origin', 'destination'] as $end) {
@@ -271,6 +299,7 @@ class ShipmentController extends Controller
         try {
             [$shipment, $lines] = $reservations->exclusively(function () use ($data, $extraPickups, $stopNumbers, $request, $reservations) {
                 $lines = $this->resolveItems($data['items'], $reservations->reserved());
+                $this->assertCrewFree($data);
 
                 $shipment = DB::transaction(function () use ($data, $extraPickups, $stopNumbers, $lines, $request) {
                     $shipment = Shipment::create(collect($data)->except('items')->all() + [
@@ -330,7 +359,7 @@ class ShipmentController extends Controller
             $shipment->saveQuietly();
         }
 
-        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'shipmentNotes.user.avatar', 'pickups.collector']);
+        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'shipmentNotes.user.avatar', 'pickups.collector', 'helper']);
 
         // Office roles see where the vehicle is, while it's on the road and the driver shares.
         $user = request()->user();
@@ -340,13 +369,81 @@ class ShipmentController extends Controller
             ? VehicleLocationPing::with(['driver', 'vehicle'])->whereIn('id', TrackingController::latestPingIds($shipment->shipment_id))->get()
             : collect();
 
-        return view('shipments.show', ['shipment' => $shipment, 'live' => $live]);
+        // Super Admin can change who takes a shipment that isn't finished and wasn't split
+        // across several trucks (older shipments, from when loads could be split automatically).
+        $crew = null;
+        if ($user->isSuperAdmin() && $this->crewEditable($shipment)) {
+            $crew = [
+                // The current crew stays listed even if it has since gone inactive or into the workshop.
+                'drivers' => Driver::where('status', 'active')->orWhere('id', $shipment->driver_id)->orderBy('name')->get(),
+                'vehicles' => Vehicle::where('status', '!=', 'maintenance')->orWhere('id', $shipment->vehicle_id)->orderBy('plate_number')->get(),
+                'helpers' => Helper::where('status', 'active')->orWhere('id', $shipment->helper_id)->orderBy('name')->get(),
+                'busy' => app(CrewAvailability::class)->busy($shipment->shipment_id),
+            ];
+        }
+
+        return view('shipments.show', ['shipment' => $shipment, 'live' => $live, 'crew' => $crew]);
+    }
+
+    /** Whether the driver, vehicle and helper of this shipment can still be changed. */
+    private function crewEditable(Shipment $shipment): bool
+    {
+        return in_array($shipment->status, Shipment::OPEN_STATUSES, true) && ! $shipment->allocations()->exists();
+    }
+
+    /** Super Admin changing the driver, vehicle or helper of a shipment that isn't finished. */
+    public function updateCrew(Request $request, Shipment $shipment)
+    {
+        if (! $this->crewEditable($shipment)) {
+            return back()->with('error', "The driver and vehicle of this shipment can't be changed any more.");
+        }
+
+        $data = $request->validate([
+            'driver_id' => ['required', 'integer', 'exists:drivers,id'],
+            'vehicle_id' => ['required', 'integer', 'exists:vehicles,id'],
+            'helper_id' => ['nullable', 'integer', 'exists:helpers,id'],
+        ], [
+            'driver_id.required' => 'Choose the driver for this shipment.',
+            'vehicle_id.required' => 'Choose the vehicle for this shipment.',
+        ]);
+        $data['helper_id'] ??= null;
+        $this->assertCrewFree($data, $shipment->shipment_id);
+
+        $shipment->load(['driver', 'vehicle', 'helper']);
+        $before = $this->crewNames($shipment);
+        $newDriver = (int) $data['driver_id'] !== (int) $shipment->driver_id;
+        $shipment->update($data);
+        $after = $this->crewNames($shipment->load(['driver', 'vehicle', 'helper']));
+
+        if ($before === $after) {
+            return back()->with('status', 'Nothing was changed.');
+        }
+
+        ActivityLog::record('updated', sprintf(
+            'Shipment %s assignment changed from %s to %s', $shipment->tracking_number, $before, $after
+        ), $shipment);
+
+        if ($newDriver) {
+            app(ShipmentAlerts::class)->driversAssigned($shipment, [$shipment->driver_id], $request->user()->id);
+        }
+
+        return back()->with('status', 'Driver and vehicle updated.');
+    }
+
+    /** "Driver / vehicle / helper" of a shipment, for the activity log. */
+    private function crewNames(Shipment $shipment): string
+    {
+        return implode(' / ', [
+            $shipment->driver?->name ?? 'no driver',
+            $shipment->vehicle?->plate_number ?? 'no vehicle',
+            $shipment->helper?->name ?? 'no helper',
+        ]);
     }
 
     /** Printable copy of one shipment. The browser's print dialog saves it as a PDF. */
     public function print(Shipment $shipment)
     {
-        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'pickups']);
+        $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'pickups', 'helper']);
 
         ActivityLog::record('report', "Printed shipment {$shipment->tracking_number}", $shipment);
 
@@ -356,9 +453,8 @@ class ShipmentController extends Controller
     /** Printable copy of the shipment list, with the same search and status filter as the page. */
     public function printList(Request $request)
     {
-        $status = $request->query('status');
-        $search = trim((string) $request->query('q'));
-        $query = $this->listQuery($status, $search);
+        $filters = $this->listFilters($request);
+        $query = $this->listQuery($filters);
 
         $total = (clone $query)->count();
 
@@ -368,18 +464,56 @@ class ShipmentController extends Controller
             'shipments' => $query->limit(self::PRINT_LIMIT)->get(),
             'total' => $total,
             'limit' => self::PRINT_LIMIT,
-            'status' => $status === 'open' || in_array($status, Shipment::STATUSES, true) ? $status : null,
-            'search' => $search,
+            'status' => $filters['status'],
+            'search' => $filters['search'],
+            'month' => $filters['month'],
+            'year' => $filters['year'],
         ]);
     }
 
-    /** Shipments matching the list page's search and status filter, newest first. */
-    private function listQuery(?string $status, string $search)
+    /**
+     * The list page's filters, read from the address. Anything not recognised is dropped,
+     * so a mistyped or old link still shows the list instead of an error.
+     *
+     * @return array{status: ?string, search: string, month: ?int, year: ?int}
+     */
+    private function listFilters(Request $request): array
     {
+        $status = $request->query('status');
+        $month = (int) $request->query('month');
+        $year = (int) $request->query('year');
+
+        return [
+            'status' => $status === 'open' || in_array($status, Shipment::STATUSES, true) ? $status : null,
+            'search' => trim((string) $request->query('q')),
+            'month' => $month >= 1 && $month <= 12 ? $month : null,
+            'year' => $year >= 2000 && $year <= 2100 ? $year : null,
+        ];
+    }
+
+    /** Years to offer in the list's Year filter: every year with a shipment, plus this one. */
+    private function scheduledYears(): array
+    {
+        $first = Shipment::min('scheduled_delivery_at');
+        $last = Shipment::max('scheduled_delivery_at');
+        $from = min(now()->year, $first ? (int) substr((string) $first, 0, 4) : now()->year);
+        $to = max(now()->year, $last ? (int) substr((string) $last, 0, 4) : now()->year);
+
+        return range($to, $from);
+    }
+
+    /** Shipments matching the list page's search, status, month and year filters, newest first. */
+    private function listQuery(array $filters)
+    {
+        ['status' => $status, 'search' => $search, 'month' => $month, 'year' => $year] = $filters;
+
         return Shipment::query()
             // "open" is every status that isn't finished yet (the reminder banner links here).
             ->when($status === 'open', fn ($q) => $q->whereIn('status', Shipment::OPEN_STATUSES))
-            ->when(in_array($status, Shipment::STATUSES, true), fn ($q) => $q->where('status', $status))
+            ->when($status && $status !== 'open', fn ($q) => $q->where('status', $status))
+            // By scheduled delivery date: a year, a month, or both ("every October" works too).
+            ->when($year, fn ($q) => $q->whereYear('scheduled_delivery_at', $year))
+            ->when($month, fn ($q) => $q->whereMonth('scheduled_delivery_at', $month))
             ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('tracking_number', 'like', "%{$search}%")
                 ->orWhere('destination_name', 'like', "%{$search}%")
@@ -549,32 +683,12 @@ class ShipmentController extends Controller
             $note ? ' ("'.$note.'")' : ''
         ), $shipment);
 
+        // Finished: its trucks go back to Available, and its crew can be assigned again.
+        if (! in_array($status, Shipment::OPEN_STATUSES, true)) {
+            app(CrewAvailability::class)->release($shipment);
+        }
+
         app(ShipmentAlerts::class)->statusChanged($shipment, $status, $note, $userId);
-    }
-
-    /**
-     * Auto-allocate this shipment across the available fleet (First-Fit-Decreasing)
-     * and dispatch it. See App\Services\Fleet\FleetAllocationService for the algorithm.
-     */
-    public function dispatch(Request $request, Shipment $shipment, FleetAllocationService $fleet)
-    {
-        if (! in_array($shipment->status, ['pending', 'ready_for_pickup'], true)) {
-            return back()->with('error', "Only a Pending or Ready for pickup shipment can be auto-dispatched (this one is {$shipment->statusLabel()}).");
-        }
-
-        try {
-            $plan = $fleet->dispatch($shipment, $request->user()->id);
-        } catch (InsufficientFleetCapacityException|InvalidArgumentException $e) {
-            return back()->with('error', $e->getMessage());
-        }
-
-        app(ShipmentAlerts::class)->driversAssigned($shipment, $shipment->allocations()->pluck('driver_id')->all(), $request->user()->id);
-
-        $message = $plan->isSplit()
-            ? "Shipment {$shipment->tracking_number} split across {$plan->vehicleCount()} vehicles and dispatched."
-            : "Shipment {$shipment->tracking_number} dispatched on {$plan->legs[0]->vehicle->plate_number}.";
-
-        return back()->with('status', $message);
     }
 
     /**
@@ -650,6 +764,19 @@ class ShipmentController extends Controller
         }
 
         return $lines;
+    }
+
+    /**
+     * A vehicle, driver or helper still out on an unfinished shipment can't be put on
+     * another one until that shipment is delivered, returned or cancelled.
+     */
+    private function assertCrewFree(array $data, ?int $exceptShipmentId = null): void
+    {
+        app(CrewAvailability::class)->assertFree([
+            'vehicle_id' => [$data['vehicle_id'] ?? null, Vehicle::whereKey($data['vehicle_id'] ?? 0)->value('plate_number')],
+            'driver_id' => [$data['driver_id'] ?? null, Driver::whereKey($data['driver_id'] ?? 0)->value('name')],
+            'helper_id' => [$data['helper_id'] ?? null, Helper::whereKey($data['helper_id'] ?? 0)->value('name')],
+        ], $exceptShipmentId);
     }
 
     private function newTrackingNumber(): string

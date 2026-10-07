@@ -37,11 +37,6 @@
     @endif
 
     <div class="form-grid">
-      <div class="field"><label for="plate_number">Plate number</label>
-        <input id="plate_number" name="plate_number" value="{{ old('plate_number', $vehicle->plate_number) }}" required maxlength="8"
-               placeholder="ABC 1234" style="text-transform:uppercase" autocomplete="off"
-               pattern="^[A-Za-z]{3}\s?\d{3,4}$" title="3 letters followed by 3 or 4 numbers, e.g. ABC 123 or ABC 1234">
-        <small class="hint">3 letters + 3 or 4 numbers, e.g. ABC 123 or ABC 1234. A space is optional.</small></div>
       <div class="field"><label for="type">Type</label>
         <select id="type" name="type" required>
           <option value="">Select…</option>
@@ -49,6 +44,11 @@
             <option value="{{ $t }}" data-payload="{{ \App\Models\Vehicle::TYPICAL_PAYLOAD_KG[$t] ?? '' }}" @selected(old('type', $vehicle->type) === $t)>{{ $t }}</option>
           @endforeach
         </select></div>
+      <div class="field"><label for="plate_number">Plate number</label>
+        <input id="plate_number" name="plate_number" value="{{ old('plate_number', $vehicle->plate_number) }}" required maxlength="8"
+               placeholder="ABC 1234" style="text-transform:uppercase" autocomplete="off"
+               pattern="^[A-Za-z]{3}\s?\d{3,4}$" title="3 letters followed by 3 or 4 numbers, e.g. ABC 123 or ABC 1234">
+        <small class="hint">3 letters + 3 or 4 numbers, e.g. ABC 123 or ABC 1234. A space is optional.</small></div>
       <div class="field"><label for="capacity_kg">Capacity (kg)</label>
         <input type="number" step="0.01" min="0" id="capacity_kg" name="capacity_kg" value="{{ old('capacity_kg', $vehicle->capacity_kg) }}">
         <small id="payloadHint" style="display:block;color:var(--muted);font-size:.75rem;margin-top:4px"></small></div>

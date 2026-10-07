@@ -186,4 +186,28 @@ class UserEditTest extends TestCase
         $this->assertSame($hash, $target->fresh()->password);
         $this->assertNotSame('Hacked', $target->fresh()->name);
     }
+
+    public function test_the_user_list_can_be_sorted_and_filtered_by_role_and_status(): void
+    {
+        $admin = $this->user(Role::SuperAdmin);
+        $admin->forceFill(['name' => 'Mia Admin'])->save();
+        $zed = $this->user(Role::Manager);
+        $zed->forceFill(['name' => 'Zed Manager'])->save();
+        $abe = $this->user(Role::FieldPersonnel);
+        $abe->forceFill(['name' => 'Abe Field', 'is_active' => false])->save();
+
+        $names = fn (string $query) => $this->actingAs($admin)->get('/users'.$query)->assertOk()->viewData('users')->pluck('name')->all();
+
+        $this->assertSame(['Abe Field', 'Mia Admin', 'Zed Manager'], $names(''));
+        $this->assertSame(['Zed Manager', 'Mia Admin', 'Abe Field'], $names('?sort=za'));
+        $this->assertSame(['Zed Manager'], $names('?role=manager'));
+        $this->assertSame(['Abe Field'], $names('?status=inactive'));
+        $this->assertSame(['Mia Admin', 'Zed Manager'], $names('?status=active'));
+        $this->assertSame([], $names('?role=manager&status=inactive'));
+        // Unknown values are ignored instead of failing.
+        $this->assertSame(['Abe Field', 'Mia Admin', 'Zed Manager'], $names('?role=pirate&status=maybe&sort=sideways'));
+
+        $this->actingAs($admin)->get('/users?role=manager&status=inactive')->assertSee('No users match these filters.')->assertSee('Showing 0 of 3 users');
+        $this->actingAs($admin)->get('/users?role=manager')->assertSee('Showing 1 of 3 users')->assertSee('Clear');
+    }
 }

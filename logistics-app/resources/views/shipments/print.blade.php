@@ -86,7 +86,8 @@
     <div><dt>Dispatched</dt><dd>{{ $when($shipment->dispatched_at) }}</dd></div>
     <div><dt>Delivered</dt><dd>{{ $when($shipment->actual_delivery_at) }}</dd></div>
     <div><dt>Driver</dt><dd>{{ $shipment->driver?->name ?? 'Unassigned' }}</dd></div>
-    <div><dt>Vehicle</dt><dd>{{ $shipment->vehicle?->plate_number ?? 'Unassigned' }}</dd></div>
+    <div><dt>Vehicle</dt><dd>{{ $shipment->vehicle?->plate_number ?? 'Unassigned' }}@if ($shipment->vehicle?->type) ({{ $shipment->vehicle->type }})@endif</dd></div>
+    @if ($shipment->helper) <div><dt>Helper</dt><dd>{{ $shipment->helper->name }}</dd></div> @endif
     <div><dt>Load</dt><dd>{{ $shipment->items->count() }} {{ Str::plural('line', $shipment->items->count()) }} · {{ number_format($units) }} {{ Str::plural('unit', $units) }}</dd></div>
     <div><dt>Received by</dt><dd>{{ $shipment->received_by ?: '—' }}</dd></div>
   </dl>

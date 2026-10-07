@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Enums\Role;
 use App\Models\ActivityLog;
 use App\Models\Driver;
+use App\Models\Helper;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\CrewAvailability;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -16,6 +18,9 @@ class DriverController extends Controller
     {
         return view('drivers.index', [
             'drivers' => Driver::with('vehicle')->withCount('shipments')->orderBy('name')->get(),
+            'helpers' => Helper::with(['vehicle', 'user'])->orderBy('name')->get(),
+            // Drivers and helpers still out on a shipment that isn't finished yet.
+            'busy' => app(CrewAvailability::class)->busy(),
         ]);
     }
 
