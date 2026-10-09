@@ -192,11 +192,13 @@
       $u = auth()->user();
       $isSuperAdmin = $u->isSuperAdmin();
       $isOffice = $u->hasRole('manager', 'logistics_coordinator');
+      $isManager = $u->hasRole('manager');
     @endphp
     @php
       // Menu sections and links, each shown only to the roles that can open it:
-      // Super Admin: Insights and Administration. Manager and Coordinator: Operations, Fleet
-      // and Administration without Driver dashboard and Site Images. Field Personnel: their part of Operations.
+      // Super Admin: Insights and Administration. Manager: Operations, Fleet, Insights and
+      // Administration without Driver dashboard and Site Images. Coordinator: Operations and
+      // Fleet. Field Personnel: their part of Operations.
       $navGroups = array_filter([
         'operations' => $isSuperAdmin ? null : ['label' => __('Operations'), 'links' => array_filter([
           ['shipments.*', route('shipments.index'), __('Shipments')],
@@ -207,10 +209,10 @@
           ['vehicles.*', route('vehicles.index'), __('Vehicles')],
           [['drivers.*', 'helpers.*'], route('drivers.index'), __('Drivers & helpers')],
         ]] : null,
-        'insights' => $isSuperAdmin ? ['label' => __('Insights'), 'links' => [
+        'insights' => $isSuperAdmin || $isManager ? ['label' => __('Insights'), 'links' => [
           ['reports.*', route('reports.activity'), __('Reports')],
         ]] : null,
-        'admin' => $isSuperAdmin || $isOffice ? ['label' => __('Administration'), 'links' => array_filter([
+        'admin' => $isSuperAdmin || $isManager ? ['label' => __('Administration'), 'links' => array_filter([
           ['users.*', route('users.index'), __('Users & Roles')],
           ['emergency-contacts.*', route('emergency-contacts.index'), __('Emergency contacts')],
           $isSuperAdmin ? ['site-contents.*', route('site-contents.index'), __('Driver dashboard')] : null,

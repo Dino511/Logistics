@@ -18,10 +18,12 @@ class ShipmentNoteController extends Controller
 
     /**
      * Notes posted after the one with id `after`, rendered as list items, so an open page
-     * can add them without reloading. Anyone signed in can read a shipment's notes.
+     * can add them without reloading. Anyone who can open the shipment can read its notes.
      */
     public function index(Request $request, Shipment $shipment): JsonResponse
     {
+        abort_unless($shipment->isVisibleTo($request->user()), 403);
+
         $after = (int) $request->query('after', 0);
         $notes = $shipment->shipmentNotes()->with('user.avatar')->where('id', '>', $after)->get();
 

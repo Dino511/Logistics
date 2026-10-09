@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ActivityLog;
 use App\Models\Alert;
 use App\Models\Inventory\Product;
 use App\Models\Inventory\Stock;
@@ -12,7 +11,6 @@ use App\Models\SiteContent;
 use App\Models\User;
 use App\Models\VehicleLocationPing;
 use App\Services\StockReservations;
-use App\Support\Csv;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -102,29 +100,6 @@ class DashboardController extends Controller
         }
 
         return view('dashboard', compact('stats', 'weekly', 'shipments', 'inventory', 'attention', 'range'));
-    }
-
-    /** CSV of shipments created in the chosen period (office roles; see routes). */
-    public function export(Request $request)
-    {
-        $range = $this->range($request);
-        ActivityLog::record('report', "Exported shipments of the last {$range} days to CSV");
-
-        $rows = Shipment::with(['driver', 'vehicle'])->where('created_at', '>=', now()->subDays($range))->orderByDesc('shipment_id');
-
-        return response()->streamDownload(function () use ($rows) {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, ['Tracking no.', 'Status', 'Origin', 'Destination', 'Driver', 'Vehicle', 'Scheduled', 'Dispatched', 'Delivered', 'Result', 'Created']);
-            foreach ($rows->cursor() as $s) {
-                fputcsv($out, array_map([Csv::class, 'safe'], [
-                    $s->tracking_number, $s->statusLabel(), $s->origin_city, $s->destination_name.', '.$s->destination_city,
-                    $s->driver?->name, $s->vehicle?->plate_number,
-                    $s->scheduled_delivery_at?->format('Y-m-d H:i'), $s->dispatched_at?->format('Y-m-d H:i'),
-                    $s->actual_delivery_at?->format('Y-m-d H:i'), $s->delivery_result, $s->created_at?->format('Y-m-d H:i'),
-                ]));
-            }
-            fclose($out);
-        }, 'shipments-last-'.$range.'-days-'.now()->format('Ymd').'.csv', ['Content-Type' => 'text/csv']);
     }
 
     /** The chosen period in days: 7 (default) or 30. */

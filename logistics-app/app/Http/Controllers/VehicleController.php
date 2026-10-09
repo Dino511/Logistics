@@ -56,6 +56,8 @@ class VehicleController extends Controller
 
     public function edit(Vehicle $vehicle)
     {
+        $vehicle->load('lease');
+
         return view('vehicles.form', ['vehicle' => $vehicle, 'lease' => $vehicle->lease ?? new VehicleLease]);
     }
 

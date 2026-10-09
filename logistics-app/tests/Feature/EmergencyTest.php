@@ -138,12 +138,22 @@ class EmergencyTest extends TestCase
 
     public function test_only_administrators_manage_contacts(): void
     {
-        foreach ([$this->admin, $this->manager, $this->coordinator] as $user) {
+        foreach ([$this->admin, $this->manager] as $user) {
             $this->actingAs($user)->get('/emergency-contacts')->assertOk();
         }
 
-        $this->actingAs($this->field)->get('/emergency-contacts')->assertForbidden();
-        $this->actingAs($this->field)->post('/emergency-contacts', ['name' => 'X', 'phone' => '123', 'category' => 'other'])->assertForbidden();
+        foreach ([$this->coordinator, $this->field] as $user) {
+            $this->actingAs($user)->get('/emergency-contacts')->assertForbidden();
+            $this->actingAs($user)->post('/emergency-contacts', ['name' => 'X', 'phone' => '123', 'category' => 'other'])->assertForbidden();
+        }
+
+        // Existing contacts can't be changed or removed by them either.
+        $contact = EmergencyContact::firstOrFail();
+        foreach ([$this->coordinator, $this->field] as $user) {
+            $this->actingAs($user)->put("/emergency-contacts/{$contact->id}", ['name' => 'Bad Edit', 'phone' => '0917 123 4567', 'category' => 'other'])->assertForbidden();
+            $this->actingAs($user)->delete("/emergency-contacts/{$contact->id}")->assertForbidden();
+        }
+        $this->assertSame($contact->name, $contact->fresh()->name);
     }
 
     public function test_drivers_see_the_emergency_button_with_tap_to_call_numbers(): void

@@ -32,6 +32,10 @@
     @csrf
     @if ($editing) @method('PUT') @endif
 
+    @php $leaseEnded = $editing && $vehicle->leaseEnded(); @endphp
+    @if ($leaseEnded)
+      <ul class="errors" role="alert"><li>This leased vehicle has ended its contract ({{ lcfirst($vehicle->leaseEndedNote()) }}). It is unavailable for shipments until the contract is renewed: set the contract status to Active and a lease end date that hasn't passed.</li></ul>
+    @endif
     @if ($errors->any())
       <ul class="errors">@foreach ($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
     @endif
@@ -53,9 +57,17 @@
         <input type="number" step="0.01" min="0" id="capacity_kg" name="capacity_kg" value="{{ old('capacity_kg', $vehicle->capacity_kg) }}">
         <small id="payloadHint" style="display:block;color:var(--muted);font-size:.75rem;margin-top:4px"></small></div>
       <div class="field"><label for="status">Status</label>
-        <select id="status" name="status" required>
-          @foreach (\App\Models\Vehicle::STATUSES as $s)<option value="{{ $s }}" @selected(old('status', $vehicle->status) === $s)>{{ \App\Models\Vehicle::statusLabel($s) }}</option>@endforeach
-        </select></div>
+        @if ($leaseEnded)
+          {{-- The contract is over, so the status is fixed at Unavailable. The saved status is
+               sent along unchanged and applies again once the contract is renewed. --}}
+          <select id="status" disabled aria-describedby="statusHint"><option>Unavailable</option></select>
+          <input type="hidden" name="status" value="{{ old('status', $vehicle->status) }}">
+          <small id="statusHint" style="display:block;color:var(--muted);font-size:.75rem;margin-top:4px">{{ $vehicle->leaseEndedNote() }}. Goes back to {{ \App\Models\Vehicle::statusLabel($vehicle->status) }} once the contract is renewed.</small>
+        @else
+          <select id="status" name="status" required>
+            @foreach (\App\Models\Vehicle::STATUSES as $s)<option value="{{ $s }}" @selected(old('status', $vehicle->status) === $s)>{{ \App\Models\Vehicle::statusLabel($s) }}</option>@endforeach
+          </select>
+        @endif</div>
     </div>
 
     <label class="checkbox-field">

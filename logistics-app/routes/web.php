@@ -41,9 +41,10 @@ Route::middleware('guest')->group(function () {
 //
 // Who can open what:
 //   Super Admin ............ Insights (reports) and Administration, nothing else.
-//   Manager, Coordinator ... Operations, Fleet, and Administration except the Driver
-//                            dashboard texts and Site Images.
-//   Field Personnel ........ their own deliveries, the calendar and the shipment list.
+//   Manager ................ Operations, Fleet, Reports (read only), Users & Roles for
+//                            Field Personnel accounts, and Emergency contacts.
+//   Logistics Coordinator .. Operations and Fleet.
+//   Field Personnel ........ the deliveries assigned to them, and their calendar.
 // The `role` middleware lets in exactly the roles it names; no role passes automatically.
 Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->group(function () {
     // Home. Field Personnel get their own dashboard; a Super Admin is sent on to Reports.
@@ -69,8 +70,7 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
         // Truck / cargo helpers are listed on the Drivers page, so there is no index of their own.
         Route::resource('helpers', HelperController::class)->except(['index', 'show', 'destroy']);
 
-        // Live tracking map and the dashboard's shipment export.
-        Route::get('/dashboard/export', [DashboardController::class, 'export'])->name('dashboard.export');
+        // Live tracking map.
         Route::get('/tracking', [TrackingController::class, 'index'])->name('tracking.index');
         Route::get('/tracking/positions', [TrackingController::class, 'positions'])->name('tracking.positions');
     });
@@ -84,10 +84,12 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
 
     // Operations pages shared by the office and Field Personnel.
     Route::middleware('role:manager,logistics_coordinator,field_personnel')->group(function () {
+        // Field Personnel see only the shipments assigned to them, on every page in this group
+        // (the controllers scope it).
         Route::get('/shipments', [ShipmentController::class, 'index'])->name('shipments.index');
         Route::get('/shipments/print', [ShipmentController::class, 'printList'])->name('shipments.print-list');
 
-        // Pickups and deliveries by day. Field Personnel see only their own (the controller scopes it).
+        // Pickups and deliveries by day.
         Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar.index');
 
         // Read-only city/province/postal-code lookup for the shipment form's autocomplete.
@@ -114,16 +116,19 @@ Route::middleware(['auth', AuthenticateSession::class, EnsureActive::class])->gr
         Route::post('/shipments/{shipment}/tracking/ping', [TrackingController::class, 'ping'])->middleware('throttle:10,1')->name('tracking.ping');
     });
 
-    // Insights. Reports (the activity log): Super Admin only; the controller re-checks with a Gate.
-    Route::middleware('role:super_admin')->prefix('reports/activity-logs')->name('reports.activity')->group(function () {
-        Route::get('/', [ActivityLogController::class, 'index'])->name('');
-        Route::get('/print', [ActivityLogController::class, 'print'])->name('.print');
-        Route::get('/export', [ActivityLogController::class, 'export'])->name('.export');
+    // Insights. Reports (the activity log): Super Admins, and Managers to read only.
+    // Printing and exporting it stay with the Super Admin. The controller re-checks with Gates.
+    Route::prefix('reports/activity-logs')->name('reports.activity')->group(function () {
+        Route::get('/', [ActivityLogController::class, 'index'])->middleware('role:super_admin,manager')->name('');
+        Route::middleware('role:super_admin')->group(function () {
+            Route::get('/print', [ActivityLogController::class, 'print'])->name('.print');
+            Route::get('/export', [ActivityLogController::class, 'export'])->name('.export');
+        });
     });
 
-    // Administration: Super Admin, Manager and Logistics Coordinator. The controllers re-check
-    // with a Gate, and Managers and Coordinators can never see or change a Super Admin account.
-    Route::middleware('role:super_admin,manager,logistics_coordinator')->group(function () {
+    // Administration: Super Admin and Manager. The controllers re-check with a Gate, and a
+    // Manager can only see and change Field Personnel accounts.
+    Route::middleware('role:super_admin,manager')->group(function () {
         Route::prefix('users')->name('users.')->group(function () {
             Route::get('/', [UserController::class, 'index'])->name('index');
             Route::get('/create', [UserController::class, 'create'])->name('create');

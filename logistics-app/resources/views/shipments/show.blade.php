@@ -140,7 +140,7 @@
     $isAssigned = $me->hasRole('field_personnel') && $shipment->isAssignedToDriver($me->driver);
     $fieldOptions = $isAssigned ? $shipment->fieldNextStatuses() : [];
     $canShare = $isAssigned && in_array($shipment->status, \App\Http\Controllers\TrackingController::TRACKABLE_STATUSES, true);
-    $officeCanUpdate = $canManage && count($shipment->allowedNextStatuses());
+    $officeCanUpdate = $canManage && count($shipment->nextStatusesFor($me));
     $hasProof = $shipment->proof_photo_path || $shipment->received_by;
     $hasActions = $fieldOptions || $canShare || $officeCanUpdate || $hasProof || $crew;
     $units = $shipment->items->sum('quantity');
@@ -377,7 +377,7 @@
             <form class="sd-stack" method="POST" action="{{ route('shipments.status', $shipment) }}">
               @csrf @method('PATCH')
               <select name="status" aria-label="New status" data-status-help="office_status_help">
-                @foreach ($shipment->allowedNextStatuses() as $next)
+                @foreach ($shipment->nextStatusesFor($me) as $next)
                   <option value="{{ $next }}" data-desc="{{ __(\App\Models\Shipment::description($next)) }}">{{ __('Mark as :status', ['status' => __(\App\Models\Shipment::label($next))]) }}</option>
                 @endforeach
               </select>

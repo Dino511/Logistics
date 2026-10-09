@@ -31,7 +31,7 @@ class ActivityLogController extends Controller
 
     public function print(Request $request)
     {
-        Gate::authorize('view-activity-logs');
+        Gate::authorize('export-activity-logs');
         $filters = $this->filters($request);
         $query = $this->query($filters);
 
@@ -51,7 +51,7 @@ class ActivityLogController extends Controller
 
     public function export(Request $request)
     {
-        Gate::authorize('view-activity-logs');
+        Gate::authorize('export-activity-logs');
         $filters = $this->filters($request);
         $query = $this->query($filters);
 

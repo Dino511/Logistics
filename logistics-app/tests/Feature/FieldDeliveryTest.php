@@ -148,6 +148,24 @@ class FieldDeliveryTest extends TestCase
         $this->assertSame('in_transit', $s->fresh()->status);
     }
 
+    public function test_only_a_manager_cancels_and_a_coordinator_keeps_every_other_status(): void
+    {
+        $coordinator = $this->user(Role::LogisticsCoordinator);
+        $s = $this->shipment();
+        $status = fn (User $user, string $to) => $this->actingAs($user)->patch("/shipments/{$s->shipment_id}/status", ['status' => $to]);
+
+        $status($coordinator, 'cancelled')->assertForbidden();
+        $status($this->field, 'cancelled')->assertForbidden();
+        $status($this->user(Role::SuperAdmin), 'cancelled')->assertForbidden();
+        $this->assertSame('in_transit', $s->fresh()->status);
+
+        $status($coordinator, 'delayed')->assertRedirect()->assertSessionHas('status');
+        $this->assertSame('delayed', $s->fresh()->status);
+
+        $status($this->user(Role::Manager), 'cancelled')->assertRedirect()->assertSessionHas('status');
+        $this->assertSame('cancelled', $s->fresh()->status);
+    }
+
     public function test_field_personnel_cannot_cancel_or_start_a_pending_shipment(): void
     {
         $inTransit = $this->shipment();
@@ -312,7 +330,7 @@ class FieldDeliveryTest extends TestCase
         $office = $this->user(Role::LogisticsCoordinator);
 
         // Shown to the office and to the assigned driver, on pages that have nothing to do with shipments.
-        $this->actingAs($office)->get('/emergency-contacts')->assertOk()->assertSee('1 shipment is not delivered yet');
+        $this->actingAs($office)->get('/shipments')->assertOk()->assertSee('1 shipment is not delivered yet');
         // Never to a Super Admin, who doesn't work with shipments.
         $this->actingAs($this->user(Role::SuperAdmin))->get('/emergency-contacts')->assertOk()->assertDontSee('not delivered yet');
         $this->actingAs($this->user(Role::Manager))->get('/emergency-contacts')->assertOk()

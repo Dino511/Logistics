@@ -196,6 +196,41 @@ class Shipment extends Model
             ->orWhereHas('allocations', fn ($a) => $a->where('driver_id', $driverId)));
     }
 
+    /**
+     * The shipments a person may see: all of them for office staff, and for Field Personnel
+     * only the ones they are on, as the driver or as the truck / cargo helper.
+     */
+    public function scopeVisibleTo($query, User $user)
+    {
+        if (! $user->hasRole('field_personnel')) {
+            return $query;
+        }
+
+        $driverId = $user->driver?->id;
+        $helperId = $user->helper?->id;
+        if (! $driverId && ! $helperId) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(fn ($q) => $q
+            ->when($driverId, fn ($w) => $w->assignedToDriver($driverId))
+            ->when($helperId, fn ($w) => $w->orWhere('helper_id', $helperId)));
+    }
+
+    public function isVisibleTo(User $user): bool
+    {
+        return static::whereKey($this->getKey())->visibleTo($user)->exists();
+    }
+
+    /** The statuses this person may move the shipment to. Only a Manager can cancel one. */
+    public function nextStatusesFor(User $user): array
+    {
+        return array_values(array_filter(
+            $this->allowedNextStatuses(),
+            fn (string $status) => $status !== 'cancelled' || $user->hasRole('manager'),
+        ));
+    }
+
     public function isAssignedToDriver(?Driver $driver): bool
     {
         return $driver !== null && static::whereKey($this->getKey())->assignedToDriver($driver->id)->exists();

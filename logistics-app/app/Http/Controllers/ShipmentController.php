@@ -10,6 +10,7 @@ use App\Models\Inventory\Stock;
 use App\Models\Inventory\Supplier;
 use App\Models\Shipment;
 use App\Models\ShipmentPickup;
+use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleLocationPing;
 use App\Services\CrewAvailability;
@@ -35,7 +36,7 @@ class ShipmentController extends Controller
     {
         $filters = $this->listFilters($request);
 
-        $shipments = $this->listQuery($filters)
+        $shipments = $this->listQuery($filters, $request->user())
             ->simplePaginate(15)
             ->withQueryString();
 
@@ -128,7 +129,8 @@ class ShipmentController extends Controller
             'inventoryDown' => $inventoryDown,
             // Only drivers who are working and vehicles that aren't in the workshop.
             'drivers' => Driver::where('status', 'active')->orderBy('name')->get(),
-            'vehicles' => Vehicle::where('status', '!=', 'maintenance')->orderBy('plate_number')->get(),
+            // Not in maintenance, and not a leased vehicle whose contract has ended.
+            'vehicles' => Vehicle::where('status', '!=', 'maintenance')->leaseNotEnded()->orderBy('plate_number')->get(),
             'helpers' => Helper::where('status', 'active')->orderBy('name')->get(),
             // Who and what is still out on an unfinished shipment: shown, but not selectable.
             'busy' => app(CrewAvailability::class)->busy(),
@@ -355,6 +357,9 @@ class ShipmentController extends Controller
 
     public function show(Shipment $shipment, Geocoder $geocoder)
     {
+        // Field Personnel open only the shipments they are on.
+        abort_unless($shipment->isVisibleTo(request()->user()), 403);
+
         // Shipments created before the route map existed get their coordinates on first view.
         if ($geocoder->fillShipment($shipment)) {
             $shipment->saveQuietly();
@@ -377,7 +382,8 @@ class ShipmentController extends Controller
             $crew = [
                 // The current crew stays listed even if it has since gone inactive or into the workshop.
                 'drivers' => Driver::where('status', 'active')->orWhere('id', $shipment->driver_id)->orderBy('name')->get(),
-                'vehicles' => Vehicle::where('status', '!=', 'maintenance')->orWhere('id', $shipment->vehicle_id)->orderBy('plate_number')->get(),
+                'vehicles' => Vehicle::where(fn ($q) => $q->where('status', '!=', 'maintenance')->leaseNotEnded())
+                    ->orWhere('id', $shipment->vehicle_id)->orderBy('plate_number')->get(),
                 'helpers' => Helper::where('status', 'active')->orWhere('id', $shipment->helper_id)->orderBy('name')->get(),
                 'busy' => app(CrewAvailability::class)->busy($shipment->shipment_id),
             ];
@@ -442,8 +448,10 @@ class ShipmentController extends Controller
     }
 
     /** Printable copy of one shipment. The browser's print dialog saves it as a PDF. */
-    public function print(Shipment $shipment)
+    public function print(Request $request, Shipment $shipment)
     {
+        abort_unless($shipment->isVisibleTo($request->user()), 403);
+
         $shipment->load(['items', 'history', 'driver', 'vehicle', 'allocations.vehicle', 'allocations.driver', 'pickups', 'helper']);
 
         ActivityLog::record('report', "Printed shipment {$shipment->tracking_number}", $shipment);
@@ -455,7 +463,7 @@ class ShipmentController extends Controller
     public function printList(Request $request)
     {
         $filters = $this->listFilters($request);
-        $query = $this->listQuery($filters);
+        $query = $this->listQuery($filters, $request->user());
 
         $total = (clone $query)->count();
 
@@ -527,12 +535,15 @@ class ShipmentController extends Controller
         };
     }
 
-    /** Shipments matching the list page's search, status and date filters, newest first. */
-    private function listQuery(array $filters)
+    /**
+     * Shipments matching the list page's search, status and date filters, newest first.
+     * Field Personnel get only the ones assigned to them.
+     */
+    private function listQuery(array $filters, User $user)
     {
         ['status' => $status, 'search' => $search, 'range' => $range] = $filters;
 
-        return Shipment::query()
+        return Shipment::visibleTo($user)
             // "open" is every status that isn't finished yet (the reminder banner links here).
             ->when($status === 'open', fn ($q) => $q->whereIn('status', Shipment::OPEN_STATUSES))
             ->when($status && $status !== 'open', fn ($q) => $q->where('status', $status))
@@ -553,6 +564,9 @@ class ShipmentController extends Controller
             'status' => ['required', Rule::in(Shipment::STATUSES)],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
+
+        // Cancelling releases the stock and the crew, so it is a Manager's decision.
+        abort_if($data['status'] === 'cancelled' && ! $request->user()->hasRole('manager'), 403, 'Only a Manager can cancel a shipment.');
 
         if (! in_array($data['status'], $shipment->allowedNextStatuses(), true)) {
             return back()->with('error', "A {$shipment->statusLabel()} shipment can't be changed to ".Shipment::label($data['status']).'.');
@@ -796,6 +810,16 @@ class ShipmentController extends Controller
      */
     private function assertCrewFree(array $data, ?int $exceptShipmentId = null): void
     {
+        // A leased vehicle whose contract has ended can't be put on a shipment. A shipment
+        // that already has it may keep it while other details are changed.
+        $vehicle = Vehicle::with('lease')->find($data['vehicle_id'] ?? 0);
+        $keeping = $exceptShipmentId && (int) Shipment::whereKey($exceptShipmentId)->value('vehicle_id') === (int) $vehicle?->id;
+        if ($vehicle?->leaseEnded() && ! $keeping) {
+            throw ValidationException::withMessages([
+                'vehicle_id' => "Vehicle {$vehicle->plate_number} is unavailable: its lease contract has ended. Renew the contract on the Vehicles page first.",
+            ]);
+        }
+
         app(CrewAvailability::class)->assertFree([
             'vehicle_id' => [$data['vehicle_id'] ?? null, Vehicle::whereKey($data['vehicle_id'] ?? 0)->value('plate_number')],
             'driver_id' => [$data['driver_id'] ?? null, Driver::whereKey($data['driver_id'] ?? 0)->value('name')],

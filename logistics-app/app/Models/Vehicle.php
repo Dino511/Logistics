@@ -76,6 +76,43 @@ class Vehicle extends Model
         return $this->hasOne(VehicleLease::class);
     }
 
+    /**
+     * A leased vehicle whose contract is over: its end date has passed, or the contract was
+     * marked Expired or Terminated. Such a vehicle is Unavailable, whatever its saved status.
+     */
+    public function leaseEnded(): bool
+    {
+        $lease = $this->is_rented ? $this->lease : null;
+
+        return $lease !== null
+            && ($lease->status !== 'active' || ($lease->end_date !== null && $lease->end_date->lt(today())));
+    }
+
+    /** Why the lease counts as ended, e.g. "Lease ended Oct 1, 2026" or "Lease terminated". */
+    public function leaseEndedNote(): ?string
+    {
+        if (! $this->leaseEnded()) {
+            return null;
+        }
+        if ($this->lease->status === 'terminated') {
+            return 'Lease terminated';
+        }
+
+        return $this->lease->end_date?->lt(today())
+            ? 'Lease ended '.$this->lease->end_date->format('M j, Y')
+            : 'Lease expired';
+    }
+
+    /** Leaves out leased vehicles whose contract has ended (see leaseEnded()). */
+    public function scopeLeaseNotEnded($query)
+    {
+        return $query->where(fn ($q) => $q
+            ->where('is_rented', false)
+            ->orWhereDoesntHave('lease')
+            ->orWhereHas('lease', fn ($l) => $l->where('status', 'active')
+                ->where(fn ($d) => $d->whereNull('end_date')->orWhere('end_date', '>=', today()->toDateString()))));
+    }
+
     public static function statusLabel(string $s): string
     {
         return ucfirst(str_replace('_', ' ', $s));

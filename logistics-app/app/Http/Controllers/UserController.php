@@ -13,9 +13,9 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
 /**
- * Users & Roles. A Super Admin manages every account. Managers and Logistics Coordinators
- * manage every account except Super Admins: they don't see them, can't change them, and
- * can't make anyone a Super Admin.
+ * Users & Roles. A Super Admin manages every account. A Manager manages Field Personnel
+ * accounts only: they don't see anyone else, can't change them, and can't give an account
+ * any other role.
  */
 class UserController extends Controller
 {
@@ -212,17 +212,14 @@ class UserController extends Controller
      */
     private function assignableRoles(User $actor): array
     {
-        return array_values(array_filter(
-            Role::cases(),
-            fn (Role $role) => $actor->isSuperAdmin() || $role !== Role::SuperAdmin,
-        ));
+        return $actor->isSuperAdmin() ? Role::cases() : [Role::FieldPersonnel];
     }
 
-    /** Stops anyone who isn't a Super Admin from opening or changing a Super Admin's account. */
+    /** Stops anyone from opening or changing an account whose role isn't theirs to manage. */
     private function authorizeManaging(User $actor, User $target): void
     {
         Gate::authorize('manage-users');
-        abort_unless($actor->isSuperAdmin() || ! $target->isSuperAdmin(), 403);
+        abort_unless(in_array($target->role, $this->assignableRoles($actor), true), 403);
     }
 
     private function isLastActiveSuperAdmin(User $user): bool

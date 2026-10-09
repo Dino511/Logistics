@@ -89,66 +89,79 @@ class UserEditTest extends TestCase
         $this->assertDatabaseMissing('users', ['email' => 'x@logistics.test']);
     }
 
-    public function test_field_personnel_cannot_add_users_and_the_office_cannot_add_super_admins(): void
+    public function test_only_super_admins_and_managers_add_users_and_managers_add_field_personnel_only(): void
     {
-        $sneaky = [
-            'name' => 'Sneaky', 'email' => 'sneaky@logistics.test', 'role' => Role::SuperAdmin->value,
+        $new = fn (string $role, string $email) => [
+            'name' => 'New Person', 'email' => $email, 'role' => $role, 'field_position' => 'driver',
             'password' => 'Welcome123', 'password_confirmation' => 'Welcome123',
         ];
 
-        $field = $this->user(Role::FieldPersonnel);
-        $this->actingAs($field)->get('/users/create')->assertForbidden();
-        $this->actingAs($field)->post('/users', $sneaky)->assertForbidden();
-
-        foreach ([Role::Manager, Role::LogisticsCoordinator] as $role) {
+        foreach ([Role::LogisticsCoordinator, Role::FieldPersonnel] as $role) {
             $user = $this->user($role);
-            // The form opens, without Super Admin among the roles on offer.
-            $this->actingAs($user)->get('/users/create')->assertOk()
-                ->assertSee('value="manager"', false)->assertDontSee('value="super_admin"', false);
-            $this->actingAs($user)->post('/users', $sneaky)->assertSessionHasErrors('role');
+            $this->actingAs($user)->get('/users/create')->assertForbidden();
+            $this->actingAs($user)->post('/users', $new('field_personnel', 'blocked@logistics.test'))->assertForbidden();
+        }
+        $this->assertDatabaseMissing('users', ['email' => 'blocked@logistics.test']);
+
+        // A Manager's form offers Field Personnel and nothing else.
+        $manager = $this->user(Role::Manager);
+        $this->actingAs($manager)->get('/users/create')->assertOk()
+            ->assertSee('value="field_personnel"', false)
+            ->assertDontSee('value="manager"', false)->assertDontSee('value="logistics_coordinator"', false)->assertDontSee('value="super_admin"', false);
+        foreach (['super_admin', 'manager', 'logistics_coordinator'] as $role) {
+            $this->actingAs($manager)->post('/users', $new($role, 'sneaky@logistics.test'))->assertSessionHasErrors('role');
         }
         $this->assertDatabaseMissing('users', ['email' => 'sneaky@logistics.test']);
 
-        $this->actingAs($this->user(Role::Manager))->post('/users', ['role' => Role::LogisticsCoordinator->value, 'email' => 'new@logistics.test'] + $sneaky)
+        $this->actingAs($manager)->post('/users', $new('field_personnel', 'driver9@logistics.test'))
             ->assertRedirect('/users')->assertSessionHasNoErrors();
-        $this->assertDatabaseHas('users', ['email' => 'new@logistics.test', 'role' => 'logistics_coordinator']);
+        $this->assertDatabaseHas('users', ['email' => 'driver9@logistics.test', 'role' => 'field_personnel', 'field_position' => 'driver']);
     }
 
-    public function test_managers_and_coordinators_manage_every_account_except_super_admins(): void
+    public function test_managers_manage_field_personnel_accounts_only(): void
     {
-        $boss = $this->user(Role::SuperAdmin);
-        $colleague = $this->user(Role::Manager);
+        $me = $this->user(Role::Manager);
         $driver = $this->user(Role::FieldPersonnel);
-        $hash = $boss->password;
+        $others = [$this->user(Role::SuperAdmin), $this->user(Role::Manager), $this->user(Role::LogisticsCoordinator)];
+        $hashes = array_map(fn (User $u) => $u->password, $others);
 
-        foreach ([Role::Manager, Role::LogisticsCoordinator] as $role) {
-            $me = $this->user($role);
+        // The list holds Field Personnel only, with no way to change a role.
+        $list = $this->actingAs($me)->get('/users')->assertOk()->assertSee($driver->email)
+            ->assertDontSee("/users/{$driver->id}/role", false)->assertSee("/users/{$driver->id}/position", false);
+        foreach ($others as $other) {
+            $list->assertDontSee($other->email);
+            $this->actingAs($me)->get('/users?role='.$other->role->value)->assertOk()->assertDontSee($other->email);
 
-            // The list leaves Super Admins out, and so does its role filter.
-            $this->actingAs($me)->get('/users')->assertOk()
-                ->assertSee($colleague->email)->assertSee($driver->email)->assertDontSee($boss->email)
-                ->assertDontSee('value="super_admin"', false);
-            $this->actingAs($me)->get('/users?role=super_admin')->assertOk()->assertSee($driver->email)->assertDontSee($boss->email);
+            // Anyone who isn't Field Personnel can't be opened or changed in any way.
+            $this->actingAs($me)->get("/users/{$other->id}/edit")->assertForbidden();
+            $this->actingAs($me)->put("/users/{$other->id}", ['name' => 'Hacked', 'email' => $other->email, 'password' => 'NewPass123', 'password_confirmation' => 'NewPass123'])->assertForbidden();
+            $this->actingAs($me)->patch("/users/{$other->id}/role", ['role' => 'field_personnel'])->assertForbidden();
+            $this->actingAs($me)->patch("/users/{$other->id}/position", ['field_position' => 'driver'])->assertForbidden();
+            $this->actingAs($me)->patch("/users/{$other->id}/active")->assertForbidden();
+        }
+        // Their own account is off limits here too (they use the profile form instead).
+        $this->actingAs($me)->get("/users/{$me->id}/edit")->assertForbidden();
 
-            // A Super Admin's account can't be opened or changed in any way.
-            $this->actingAs($me)->get("/users/{$boss->id}/edit")->assertForbidden();
-            $this->actingAs($me)->put("/users/{$boss->id}", ['name' => 'Hacked', 'email' => $boss->email, 'password' => 'NewPass123', 'password_confirmation' => 'NewPass123'])->assertForbidden();
-            $this->actingAs($me)->patch("/users/{$boss->id}/role", ['role' => 'field_personnel'])->assertForbidden();
-            $this->actingAs($me)->patch("/users/{$boss->id}/active")->assertForbidden();
+        // Nobody can be promoted out of Field Personnel.
+        foreach (['super_admin', 'manager', 'logistics_coordinator'] as $role) {
+            $this->actingAs($me)->patch("/users/{$driver->id}/role", ['role' => $role])->assertSessionHasErrors('role');
+        }
+        $this->assertSame(Role::FieldPersonnel, $driver->fresh()->role);
 
-            // Nobody can be promoted to Super Admin.
-            $this->actingAs($me)->patch("/users/{$driver->id}/role", ['role' => 'super_admin'])->assertSessionHasErrors('role');
+        // Field Personnel are theirs to manage.
+        $this->actingAs($me)->get("/users/{$driver->id}/edit")->assertOk();
+        $this->actingAs($me)->patch("/users/{$driver->id}/active")->assertSessionHas('status');
+        $this->assertFalse((bool) $driver->fresh()->is_active);
+        $this->actingAs($me)->patch("/users/{$driver->id}/active")->assertSessionHas('status');
+        $this->assertTrue((bool) $driver->fresh()->is_active);
 
-            // Everyone else is theirs to manage.
-            $this->actingAs($me)->get("/users/{$colleague->id}/edit")->assertOk();
-            $this->actingAs($me)->patch("/users/{$driver->id}/active")->assertSessionHas('status');
-            $this->actingAs($me)->patch("/users/{$driver->id}/active")->assertSessionHas('status');
+        foreach ($others as $i => $other) {
+            $other->refresh();
+            $this->assertSame([true, $hashes[$i]], [(bool) $other->is_active, $other->password]);
         }
 
-        $boss->refresh();
-        $this->assertSame([Role::SuperAdmin, true, $hash], [$boss->role, (bool) $boss->is_active, $boss->password]);
-        $this->assertSame(Role::FieldPersonnel, $driver->fresh()->role);
-        $this->assertTrue((bool) $driver->fresh()->is_active);
+        // A Super Admin still sees and manages everyone.
+        $this->actingAs($others[0])->get('/users')->assertOk()->assertSee($others[2]->email)->assertSee("/users/{$driver->id}/role", false);
     }
 
     public function test_field_personnel_are_added_as_driver_or_helper(): void

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Driver;
+use App\Models\Helper;
 use App\Models\Shipment;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
@@ -47,6 +48,7 @@ class DashboardNotesNavTest extends TestCase
             $t->string('destination_city')->nullable();
             $t->unsignedBigInteger('driver_id')->nullable();
             $t->unsignedBigInteger('vehicle_id')->nullable();
+            $t->unsignedBigInteger('helper_id')->nullable();
             $t->unsignedBigInteger('created_by')->nullable();
             $t->text('notes')->nullable();
             $t->dateTime('scheduled_delivery_at')->nullable();
@@ -101,16 +103,10 @@ class DashboardNotesNavTest extends TestCase
         $this->assertCount(7, $this->get('/dashboard?range=999')->viewData('weekly')['labels'], 'unknown periods fall back to 7 days');
     }
 
-    public function test_managers_can_export_shipments_as_csv_but_drivers_cannot(): void
+    public function test_the_dashboard_no_longer_exports_shipments(): void
     {
-        $this->shipment('SH-EXPORT-1', 'in_transit', ['destination_name' => '=HYPERLINK("x")']);
-
-        $csv = $this->actingAs($this->manager)->get('/dashboard/export?range=30')->assertOk()->streamedContent();
-        $this->assertStringContainsString('SH-EXPORT-1', $csv);
-        $this->assertStringContainsString("'=HYPERLINK", $csv, 'formulas are neutralised');
-        $this->assertDatabaseHas('activity_logs', ['action' => 'report']);
-
-        $this->actingAs($this->field)->get('/dashboard/export')->assertForbidden();
+        $this->actingAs($this->manager)->get('/dashboard')->assertOk()->assertDontSee('Export CSV');
+        $this->actingAs($this->manager)->get('/dashboard/export?range=30')->assertNotFound();
     }
 
     // ---- Notes: exact times and live updates ----
@@ -171,17 +167,101 @@ class DashboardNotesNavTest extends TestCase
         };
 
         $this->assertSame(['insights', 'admin'], $groups($this->user(Role::SuperAdmin), '/users'));
-        $this->assertSame(['operations', 'fleet', 'admin'], $groups($this->user(Role::Manager), '/shipments'));
-        $this->assertSame(['operations', 'fleet', 'admin'], $groups($this->user(Role::LogisticsCoordinator), '/shipments'));
+        $this->assertSame(['operations', 'fleet', 'insights', 'admin'], $groups($this->user(Role::Manager), '/shipments'));
+        $this->assertSame(['operations', 'fleet'], $groups($this->user(Role::LogisticsCoordinator), '/shipments'));
         $this->assertSame(['operations'], $groups($this->field, '/shipments'));
 
-        // Driver dashboard and Site Images are the Administration pages the office doesn't get.
+        // Driver dashboard and Site Images are the Administration pages a Manager doesn't get.
         $this->actingAs($this->user(Role::Manager))->get('/users')->assertOk()
-            ->assertSee('Emergency contacts')->assertDontSee('Driver dashboard')->assertDontSee('Site Images')
+            ->assertSee('Users &amp; Roles', false)->assertSee('Emergency contacts')->assertSee('Reports')
+            ->assertDontSee('Driver dashboard')->assertDontSee('Site Images')
             ->assertSee('id="bellMenu"', false);
+        // A Coordinator has no Administration or Insights pages at all.
+        $this->actingAs($this->user(Role::LogisticsCoordinator))->get('/shipments')->assertOk()
+            ->assertDontSee('Users &amp; Roles', false)->assertDontSee('Emergency contacts')->assertDontSee('Reports');
         // No alert bell for a Super Admin.
         $this->actingAs($this->user(Role::SuperAdmin))->get('/users')->assertOk()
             ->assertSee('Driver dashboard')->assertSee('Site Images')->assertDontSee('id="bellMenu"', false);
+    }
+
+    public function test_managers_read_the_activity_log_but_cannot_print_or_export_it(): void
+    {
+        $this->actingAs($this->manager)->get('/reports/activity-logs')->assertOk()
+            ->assertSee('Entries can', false)->assertDontSee('Export CSV')->assertDontSee('/reports/activity-logs/print', false);
+        $this->actingAs($this->user(Role::SuperAdmin))->get('/reports/activity-logs')->assertOk()
+            ->assertSee('Export CSV')->assertSee('/reports/activity-logs/print', false);
+
+        // Printing and exporting stay with the Super Admin, even by typing the address.
+        foreach (['/print', '/export'] as $page) {
+            $this->actingAs($this->manager)->get("/reports/activity-logs{$page}")->assertForbidden();
+            $this->actingAs($this->user(Role::SuperAdmin))->get("/reports/activity-logs{$page}")->assertOk();
+        }
+
+        foreach ([Role::LogisticsCoordinator, Role::FieldPersonnel] as $role) {
+            foreach (['', '/print', '/export'] as $page) {
+                $this->actingAs($this->user($role))->get("/reports/activity-logs{$page}")->assertForbidden();
+            }
+        }
+    }
+
+    public function test_coordinators_have_no_administration_pages(): void
+    {
+        $coordinator = $this->user(Role::LogisticsCoordinator);
+
+        foreach (['/users', '/users/create', "/users/{$this->field->id}/edit", '/emergency-contacts', '/driver-dashboard', '/site-images'] as $page) {
+            $this->actingAs($coordinator)->get($page)->assertForbidden();
+        }
+        $this->actingAs($coordinator)->post('/users', ['name' => 'X', 'email' => 'x@logistics.test'])->assertForbidden();
+        $this->actingAs($coordinator)->put("/users/{$this->field->id}", ['name' => 'X', 'email' => 'x@logistics.test'])->assertForbidden();
+        $this->actingAs($coordinator)->patch("/users/{$this->field->id}/role", ['role' => 'manager'])->assertForbidden();
+        $this->actingAs($coordinator)->patch("/users/{$this->field->id}/position", ['field_position' => 'helper'])->assertForbidden();
+        $this->actingAs($coordinator)->patch("/users/{$this->field->id}/active")->assertForbidden();
+        $this->assertSame(Role::FieldPersonnel, $this->field->fresh()->role);
+        $this->assertTrue((bool) $this->field->fresh()->is_active);
+    }
+
+    public function test_field_personnel_see_only_the_shipments_assigned_to_them(): void
+    {
+        $mine = $this->shipment('SH-MINE-1', 'in_transit');
+        $other = Driver::create(['name' => 'Someone Else']);
+        $theirs = $this->shipment('SH-THEIRS-1', 'in_transit', ['driver_id' => $other->id]);
+
+        $this->actingAs($this->field)->get('/shipments')->assertOk()->assertSee('SH-MINE-1')->assertDontSee('SH-THEIRS-1');
+        $this->actingAs($this->field)->get('/shipments?q=THEIRS')->assertOk()->assertDontSee('SH-THEIRS-1');
+        $this->actingAs($this->field)->get('/shipments/print')->assertOk()->assertSee('SH-MINE-1')->assertDontSee('SH-THEIRS-1');
+
+        $this->actingAs($this->field)->get("/shipments/{$mine->shipment_id}/notes")->assertOk();
+        $this->assertTrue($mine->isVisibleTo($this->field));
+        foreach (['', '/print', '/notes'] as $page) {
+            $this->actingAs($this->field)->get("/shipments/{$theirs->shipment_id}{$page}")->assertForbidden();
+        }
+
+        // An account with no driver or helper record sees none.
+        $this->actingAs($this->user(Role::FieldPersonnel))->get('/shipments')->assertOk()->assertDontSee('SH-MINE-1')->assertDontSee('SH-THEIRS-1');
+        // The office still sees every shipment.
+        $this->actingAs($this->manager)->get('/shipments')->assertOk()->assertSee('SH-MINE-1')->assertSee('SH-THEIRS-1');
+        $this->actingAs($this->manager)->get("/shipments/{$theirs->shipment_id}/notes")->assertOk();
+    }
+
+    public function test_a_helper_sees_only_the_shipments_they_ride_along_on(): void
+    {
+        $account = $this->user(Role::FieldPersonnel);
+        $helper = Helper::create(['name' => 'Hector Helper', 'user_id' => $account->id]);
+        $other = Driver::create(['name' => 'Someone Else']);
+        $riding = $this->shipment('SH-RIDING-1', 'in_transit', ['driver_id' => $other->id, 'helper_id' => $helper->id]);
+        $notRiding = $this->shipment('SH-NOTMINE-1', 'in_transit', ['driver_id' => $other->id]);
+
+        foreach (['/shipments', '/shipments/print'] as $page) {
+            $this->actingAs($account)->get($page)->assertOk()->assertSee('SH-RIDING-1')->assertDontSee('SH-NOTMINE-1');
+        }
+        $this->actingAs($account)->get("/shipments/{$riding->shipment_id}/notes")->assertOk();
+        $this->assertTrue($riding->isVisibleTo($account));
+        foreach (['', '/print', '/notes'] as $page) {
+            $this->actingAs($account)->get("/shipments/{$notRiding->shipment_id}{$page}")->assertForbidden();
+        }
+
+        // The driver of another shipment doesn't see the helper's one.
+        $this->actingAs($this->field)->get('/shipments')->assertOk()->assertDontSee('SH-RIDING-1');
     }
 
     public function test_a_super_admin_is_kept_out_of_operations_and_fleet(): void
@@ -189,16 +269,18 @@ class DashboardNotesNavTest extends TestCase
         $admin = $this->user(Role::SuperAdmin);
 
         $this->actingAs($admin)->get('/dashboard')->assertRedirect('/reports/activity-logs');
-        foreach (['/shipments', '/shipments/create', '/calendar', '/tracking', '/vehicles', '/drivers', '/dashboard/export'] as $page) {
+        foreach (['/shipments', '/shipments/create', '/calendar', '/tracking', '/vehicles', '/drivers'] as $page) {
             $this->actingAs($admin)->get($page)->assertForbidden();
         }
         foreach (['/reports/activity-logs', '/users', '/emergency-contacts'] as $page) {
             $this->actingAs($admin)->get($page)->assertOk();
         }
 
-        // Reports, Driver dashboard and Site Images are the Super Admin's alone.
+        // Driver dashboard and Site Images are the Super Admin's alone, and so are printing
+        // and exporting the activity log.
         foreach ([Role::Manager, Role::LogisticsCoordinator, Role::FieldPersonnel] as $role) {
-            $this->actingAs($this->user($role))->get('/reports/activity-logs')->assertForbidden();
+            $this->actingAs($this->user($role))->get('/reports/activity-logs/print')->assertForbidden();
+            $this->actingAs($this->user($role))->get('/reports/activity-logs/export')->assertForbidden();
             $this->actingAs($this->user($role))->get('/site-images')->assertForbidden();
             $this->actingAs($this->user($role))->get('/driver-dashboard')->assertForbidden();
         }

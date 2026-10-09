@@ -60,14 +60,19 @@
               <td><strong>{{ $user->name }}</strong>@if ($self) <small>(you)</small>@endif</td>
               <td>{{ $user->email }}</td>
               <td>
-                <form class="inline" method="POST" action="{{ route('users.role', $user) }}">
-                  @csrf @method('PATCH')
-                  <select name="role" onchange="this.form.submit()" @disabled($self) aria-label="Role for {{ $user->name }}">
-                    @foreach ($roles as $role)
-                      <option value="{{ $role->value }}" @selected($user->role === $role)>{{ $role->label() }}</option>
-                    @endforeach
-                  </select>
-                </form>
+                {{-- With only one role to give (a Manager), there is nothing to choose. --}}
+                @if (count($roles) > 1)
+                  <form class="inline" method="POST" action="{{ route('users.role', $user) }}">
+                    @csrf @method('PATCH')
+                    <select name="role" onchange="this.form.submit()" @disabled($self) aria-label="Role for {{ $user->name }}">
+                      @foreach ($roles as $role)
+                        <option value="{{ $role->value }}" @selected($user->role === $role)>{{ $role->label() }}</option>
+                      @endforeach
+                    </select>
+                  </form>
+                @else
+                  {{ $user->role->label() }}
+                @endif
                 @if ($user->role === \App\Enums\Role::FieldPersonnel)
                   <form class="inline position-form" method="POST" action="{{ route('users.position', $user) }}">
                     @csrf @method('PATCH')

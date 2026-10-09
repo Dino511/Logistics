@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Helper;
 use App\Models\Shipment;
 use App\Models\User;
+use App\Models\Vehicle;
 use App\Services\CrewAvailability;
 use App\Services\StockReservations;
 use Illuminate\Database\Schema\Blueprint;
@@ -87,11 +88,23 @@ class StockReservationTest extends TestCase
             $t->string('name');
             $t->string('status');
             $t->unsignedBigInteger('user_id')->nullable();
+            $t->unsignedBigInteger('vehicle_id')->nullable();
         });
         Schema::create('vehicles', function (Blueprint $t) {
             $t->id();
             $t->string('plate_number');
+            $t->string('type')->nullable();
             $t->string('status');
+            $t->boolean('is_rented')->default(false);
+            $t->timestamps();
+        });
+        Schema::create('vehicle_leases', function (Blueprint $t) {
+            $t->id();
+            $t->unsignedBigInteger('vehicle_id');
+            $t->string('lessor_name')->nullable();
+            $t->date('start_date')->nullable();
+            $t->date('end_date')->nullable();
+            $t->string('status')->default('active');
             $t->timestamps();
         });
 
@@ -331,6 +344,48 @@ class StockReservationTest extends TestCase
         $this->assertSame($driver, (int) $first->refresh()->driver_id);
     }
 
+    public function test_a_leased_vehicle_whose_contract_has_ended_is_unavailable(): void
+    {
+        $leased = function (string $plate, array $lease) {
+            $id = DB::table('vehicles')->insertGetId(['plate_number' => $plate, 'type' => 'Hino 300 Series', 'status' => 'available', 'is_rented' => true]);
+            DB::table('vehicle_leases')->insert($lease + ['vehicle_id' => $id, 'lessor_name' => 'Rentals Inc', 'start_date' => '2026-01-01', 'status' => 'active']);
+
+            return Vehicle::findOrFail($id);
+        };
+        $ended = $leased('END 1111', ['end_date' => today()->subDay()->toDateString()]);
+        $terminated = $leased('TRM 2222', ['end_date' => today()->addMonth()->toDateString(), 'status' => 'terminated']);
+        $endsToday = $leased('TDY 3333', ['end_date' => today()->toDateString()]);
+        $openEnded = $leased('OPN 4444', ['end_date' => null]);
+        $owned = Vehicle::findOrFail(DB::table('vehicles')->insertGetId(['plate_number' => 'OWN 5555', 'status' => 'available']));
+
+        $this->assertSame([true, true, false, false, false], array_map(fn (Vehicle $v) => $v->leaseEnded(), [$ended, $terminated, $endsToday, $openEnded, $owned]));
+        $this->assertSame('Lease ended '.today()->subDay()->format('M j, Y'), $ended->leaseEndedNote());
+        $this->assertSame('Lease terminated', $terminated->leaseEndedNote());
+        $this->assertSame(['OPN 4444', 'OWN 5555', 'TDY 3333'], Vehicle::leaseNotEnded()->orderBy('plate_number')->pluck('plate_number')->all());
+
+        // The Vehicles page warns about them and shows them as Unavailable.
+        $this->actingAs($this->coordinator)->get('/vehicles')->assertOk()
+            ->assertSee('2 leased vehicles have ended their contracts')
+            ->assertSee('END 1111')->assertSee('lease terminated')
+            ->assertSee('<span class="badge b-delayed">Unavailable</span>', false);
+
+        // They aren't offered for a new shipment, and can't be forced onto one.
+        $offered = $this->actingAs($this->coordinator)->get('/shipments/create')->assertOk()->viewData('vehicles')->pluck('plate_number')->all();
+        $this->assertContains('TDY 3333', $offered);
+        $this->assertNotContains('END 1111', $offered);
+        $this->assertNotContains('TRM 2222', $offered);
+        $this->createShipment(1, ['vehicle_id' => $ended->id])->assertSessionHasErrors([
+            'vehicle_id' => 'Vehicle END 1111 is unavailable: its lease contract has ended. Renew the contract on the Vehicles page first.',
+        ]);
+        $this->assertSame(0, Shipment::count());
+
+        // Renewing the contract makes it usable again.
+        DB::table('vehicle_leases')->where('vehicle_id', $ended->id)->update(['end_date' => today()->addMonths(6)->toDateString()]);
+        $this->assertFalse($ended->fresh()->leaseEnded());
+        $this->createShipment(1, ['vehicle_id' => $ended->id])->assertSessionHasNoErrors();
+        $this->actingAs($this->coordinator)->get('/vehicles')->assertOk()->assertSee('A leased vehicle has ended its contract')->assertDontSee('END 1111</a>', false);
+    }
+
     public function test_a_vehicle_driver_or_helper_on_an_unfinished_shipment_cannot_be_put_on_another(): void
     {
         $truck = DB::table('vehicles')->insertGetId(['plate_number' => 'ABC 1234', 'status' => 'available']);
@@ -380,13 +435,25 @@ class StockReservationTest extends TestCase
         $truck = DB::table('vehicles')->insertGetId(['plate_number' => 'ABC 1234', 'status' => 'on_road']);
         $this->createShipment(1)->assertSessionHasNoErrors();
         $shipment = Shipment::firstOrFail();
+        // The page offers "Cancelled" to a Manager and not to a Coordinator.
+        $this->actingAs($this->coordinator)->get("/shipments/{$shipment->shipment_id}")->assertOk()
+            ->assertSee('name="status"', false)->assertDontSee('value="cancelled"', false);
+        $this->actingAs($this->user(Role::Manager))->get("/shipments/{$shipment->shipment_id}")->assertOk()->assertSee('value="cancelled"', false);
         $shipment->update(['status' => 'in_transit', 'vehicle_id' => $truck]);
         DB::table('shipment_vehicle_allocations')->insert(['shipment_id' => $shipment->shipment_id, 'vehicle_id' => $truck, 'status' => 'dispatched']);
 
         $busy = app(CrewAvailability::class)->busy();
         $this->assertSame($shipment->shipment_id, $busy['vehicles'][$truck]->shipment_id);
 
-        $this->actingAs($this->coordinator)->patch("/shipments/{$shipment->shipment_id}/status", ['status' => 'cancelled'])->assertRedirect();
+        // Cancelling is a Manager's decision: a Coordinator isn't offered it and can't force it.
+        $this->assertContains('delivered', $shipment->nextStatusesFor($this->coordinator));
+        $this->assertNotContains('cancelled', $shipment->nextStatusesFor($this->coordinator));
+        $this->actingAs($this->coordinator)->patch("/shipments/{$shipment->shipment_id}/status", ['status' => 'cancelled'])->assertForbidden();
+        $this->assertSame('in_transit', $shipment->fresh()->status);
+
+        $manager = $this->user(Role::Manager);
+        $this->assertContains('cancelled', $shipment->nextStatusesFor($manager));
+        $this->actingAs($manager)->patch("/shipments/{$shipment->shipment_id}/status", ['status' => 'cancelled'])->assertRedirect();
 
         $this->assertSame('available', DB::table('vehicles')->where('id', $truck)->value('status'));
         $this->assertSame('cancelled', DB::table('shipment_vehicle_allocations')->where('shipment_id', $shipment->shipment_id)->value('status'));

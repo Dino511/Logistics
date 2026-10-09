@@ -21,15 +21,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $office = fn (User $user) => $user->hasRole('manager', 'logistics_coordinator');
+        $adminOrManager = fn (User $user) => $user->isSuperAdmin() || $user->hasRole('manager');
 
-        // Administration. Managers and Coordinators manage every account except Super Admins
-        // (UserController enforces that part); the Driver dashboard texts and Site Images
-        // stay with the Super Admin.
-        Gate::define('manage-users', fn (User $user) => $user->isSuperAdmin() || $office($user));
+        // Administration. A Manager manages Field Personnel accounts only (UserController
+        // enforces that part); Logistics Coordinators have no Administration pages.
+        Gate::define('manage-users', $adminOrManager);
+        // The Driver dashboard texts and Site Images stay with the Super Admin.
         Gate::define('manage-site-contents', fn (User $user) => $user->isSuperAdmin());
         Gate::define('manage-site-images', fn (User $user) => $user->isSuperAdmin());
-        // Insights: the activity log, its print-out and export.
-        Gate::define('view-activity-logs', fn (User $user) => $user->isSuperAdmin());
+        // Insights: Managers may read the activity log; only a Super Admin prints or exports it.
+        Gate::define('view-activity-logs', $adminOrManager);
+        Gate::define('export-activity-logs', fn (User $user) => $user->isSuperAdmin());
     }
 }

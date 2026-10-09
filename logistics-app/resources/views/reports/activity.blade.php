@@ -23,10 +23,12 @@
   <div class="card">
     <div class="top-actions">
       <p>Every sign-in, change and deletion is recorded here. Entries can't be edited or removed.</p>
-      <div style="display:flex;gap:8px">
-        <a class="btn" href="{{ route('reports.activity.export', $qs) }}">Export CSV</a>
-        <a class="btn primary" href="{{ route('reports.activity.print', $qs) }}" target="_blank" rel="noopener">Print</a>
-      </div>
+      @can('export-activity-logs')
+        <div style="display:flex;gap:8px">
+          <a class="btn" href="{{ route('reports.activity.export', $qs) }}">Export CSV</a>
+          <a class="btn primary" href="{{ route('reports.activity.print', $qs) }}" target="_blank" rel="noopener">Print</a>
+        </div>
+      @endcan
     </div>
 
     @if ($errors->any())
