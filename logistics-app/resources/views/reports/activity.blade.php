@@ -23,10 +23,12 @@
   <div class="card">
     <div class="top-actions">
       <p>Every sign-in, change and deletion is recorded here. Entries can't be edited or removed.</p>
-      <div style="display:flex;gap:8px">
-        <a class="btn" href="{{ route('reports.activity.export', $qs) }}">Export CSV</a>
-        <a class="btn primary" href="{{ route('reports.activity.print', $qs) }}" target="_blank" rel="noopener">Print</a>
-      </div>
+      @can('export-activity-logs')
+        <div style="display:flex;gap:8px">
+          <a class="btn" href="{{ route('reports.activity.export', $qs) }}">Export CSV</a>
+          <a class="btn primary" href="{{ route('reports.activity.print', $qs) }}" target="_blank" rel="noopener">Print</a>
+        </div>
+      @endcan
     </div>
 
     @if ($errors->any())
@@ -69,8 +71,8 @@
 
     @if ($logs->hasPages())
       <div class="pager">
-        @if ($logs->previousPageUrl()) <a class="btn sm" href="{{ $logs->previousPageUrl() }}">← Newer</a> @else <span></span> @endif
-        @if ($logs->nextPageUrl()) <a class="btn sm" href="{{ $logs->nextPageUrl() }}">Older →</a> @endif
+        @if ($logs->previousPageUrl()) <a class="btn sm" href="{{ $logs->previousPageUrl() }}">Newer</a> @else <span></span> @endif
+        @if ($logs->nextPageUrl()) <a class="btn sm" href="{{ $logs->nextPageUrl() }}">Older</a> @endif
       </div>
     @endif
   </div>

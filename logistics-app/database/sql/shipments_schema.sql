@@ -79,7 +79,7 @@ BEGIN
 
         CONSTRAINT PK_shipments PRIMARY KEY CLUSTERED (shipment_id),
         CONSTRAINT UQ_shipments_tracking_number UNIQUE (tracking_number),
-        CONSTRAINT CK_shipments_status CHECK (status IN (N'pending', N'in_transit', N'delivered', N'delayed', N'cancelled')),
+        CONSTRAINT CK_shipments_status CHECK (status IN (N'pending', N'ready_for_pickup', N'picked_up', N'in_transit', N'out_for_delivery', N'delivery_attempted', N'held_for_pickup', N'delayed', N'delivered', N'returned', N'cancelled')),
         -- A delivered shipment must record when it arrived.
         CONSTRAINT CK_shipments_delivered_has_date CHECK (status <> N'delivered' OR actual_delivery_at IS NOT NULL),
         CONSTRAINT CK_shipments_weight CHECK (total_weight_kg IS NULL OR total_weight_kg >= 0),
@@ -138,7 +138,7 @@ BEGIN
         CONSTRAINT PK_shipment_status_history PRIMARY KEY CLUSTERED (history_id),
         CONSTRAINT FK_ssh_shipment FOREIGN KEY (shipment_id) REFERENCES dbo.shipments (shipment_id) ON DELETE CASCADE,
         CONSTRAINT FK_ssh_user     FOREIGN KEY (changed_by)  REFERENCES dbo.users (id),
-        CONSTRAINT CK_ssh_status CHECK (status IN (N'pending', N'in_transit', N'delivered', N'delayed', N'cancelled'))
+        CONSTRAINT CK_ssh_status CHECK (status IN (N'pending', N'ready_for_pickup', N'picked_up', N'in_transit', N'out_for_delivery', N'delivery_attempted', N'held_for_pickup', N'delayed', N'delivered', N'returned', N'cancelled'))
     );
 END
 GO

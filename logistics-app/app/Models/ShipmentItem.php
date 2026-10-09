@@ -14,9 +14,19 @@ class ShipmentItem extends Model
 
     protected $guarded = ['shipment_item_id'];
 
-    public function shipment() { return $this->belongsTo(Shipment::class, 'shipment_id'); }
+    public function shipment()
+    {
+        return $this->belongsTo(Shipment::class, 'shipment_id');
+    }
 
     // Cross-database relations: the related tables live in the Inventory DB.
-    public function product() { return $this->belongsTo(Product::class, 'inventory_product_id'); }
-    public function fromLocation() { return $this->belongsTo(Location::class, 'inventory_location_id'); }
+    public function product()
+    {
+        return $this->belongsTo(Product::class, 'inventory_product_id');
+    }
+
+    public function fromLocation()
+    {
+        return $this->belongsTo(Location::class, 'inventory_location_id');
+    }
 }
